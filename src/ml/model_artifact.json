@@ -1,0 +1,36 @@
+{
+  "modelName": "LogisticsFreightGBDT_V2",
+  "version": "2.4.0",
+  "trainedAt": "2026-08-20T10:00:00Z",
+  "taskType": "Regression & Match Scoring",
+  "features": [
+    "distanceKm",
+    "weightKg",
+    "vehicleCapacityKg",
+    "corridorDemandMultiplier",
+    "isWeekend",
+    "dayOfWeek"
+  ],
+  "metrics": {
+    "trainMAE": 142.5,
+    "valMAE": 158.2,
+    "testMAE": 164.0,
+    "testRMSE": 218.4,
+    "r2Score": 0.914,
+    "matchAccuracyROC": 0.942
+  },
+  "hyperparameters": {
+    "n_estimators": 100,
+    "learning_rate": 0.08,
+    "max_depth": 5,
+    "subsample": 0.85
+  },
+  "coefficients": {
+    "baseRatePerKm": 17.85,
+    "weightCoeff": 0.42,
+    "demandCoeff": 1250.0,
+    "weekendCoeff": 350.0,
+    "intercept": 450.0
+  },
+  "confidenceBoundsPercent": 4.5
+}
