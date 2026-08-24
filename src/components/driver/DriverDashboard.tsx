@@ -7,8 +7,7 @@ import {
   Edit2,
   XCircle,
   TrendingUp,
-  Calendar,
-  Layers
+  Calendar
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -28,6 +27,7 @@ interface DriverDashboardProps {
   earnings: EarningsRecord[];
   onNavigate: (page: string) => void;
   onSelectTrip: (tripId: string) => void;
+  onCancelTrip?: (tripId: string) => void;
 }
 
 const REVENUE_TREND_DATA = [
@@ -43,19 +43,21 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
   trips,
   earnings,
   onNavigate,
-  onSelectTrip
+  onSelectTrip,
+  onCancelTrip
 }) => {
   const [hoveredTripId, setHoveredTripId] = useState<string | null>(null);
-  const [tripList, setTripList] = useState<Trip[]>(trips);
   const [cancelledToast, setCancelledToast] = useState<string | null>(null);
 
-  const activeTrips = tripList.filter((t) => t.status === 'active');
-  const thisMonthRaw = earnings.reduce((acc, curr) => acc + curr.amount, 0) + 28450;
+  const activeTrips = trips.filter((t) => t.status === 'active');
+  const thisMonthRaw = earnings.reduce((acc, curr) => acc + curr.amount, 0);
   const thisMonthAnimated = useCountUp(thisMonthRaw, 1600, 0);
 
   const handleCancelTrip = (e: React.MouseEvent, tripId: string) => {
     e.stopPropagation();
-    setTripList((prev) => prev.filter((t) => t.id !== tripId));
+    if (onCancelTrip) {
+      onCancelTrip(tripId);
+    }
     setCancelledToast(`Trip #${tripId} successfully cancelled.`);
     setTimeout(() => setCancelledToast(null), 3500);
   };
@@ -146,7 +148,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
                     onClick={() => { onSelectTrip(trip.id); onNavigate('driver-trip-details'); }}
                     style={{
                       padding: '18px',
-                      backgroundColor: 'var(--surface-3)',
+                      backgroundColor: 'var(--surface-2)',
                       borderRadius: 'var(--radius-md)',
                       border: isHovered ? '1.5px solid var(--brand-teal)' : '1px solid var(--border-color)',
                       display: 'flex',
@@ -175,7 +177,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
                           alignItems: 'center',
                           gap: '6px',
                           transition: 'opacity 180ms ease, transform 180ms ease',
-                          opacity: isHovered ? 1 : 0.85,
+                          opacity: 1,
                           transform: isHovered ? 'translateY(0)' : 'translateY(1px)'
                         }}
                       >
@@ -211,47 +213,52 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
                       </div>
                     </div>
 
-                    {/* Badges Row with Live Tracking Pulse Dot */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.75rem',
-                          backgroundColor: 'var(--surface-2)',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--brand-navy)',
-                          fontWeight: 600
-                        }}
-                      >
-                        {trip.vehicleType.split(' ')[0]} {trip.vehicleType.split(' ')[1]}
-                      </span>
-
-                      <span
-                        style={{
-                          fontSize: '0.75rem',
-                          backgroundColor: 'var(--surface-2)',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-primary)'
-                        }}
-                      >
-                        Cap: {formatWeight(trip.totalCapacityKg)}
-                      </span>
-
-                      {/* Status Pill with Live Pulse Dot */}
-                      <span className="status-pill status-in-transit" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1D9E75] opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#1D9E75]"></span>
+                    {/* Badges Row with Live Tracking Pulse Dot and Driver Payout */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '0.75rem',
+                            backgroundColor: 'var(--surface-3)',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-color)',
+                            color: 'var(--brand-navy)',
+                            fontWeight: 600
+                          }}
+                        >
+                          {trip.vehicleType.split(' ')[0]} {trip.vehicleType.split(' ')[1]}
                         </span>
-                        <span>
-                          {bookedLoadsCount > 0
-                            ? `${bookedLoadsCount} Load${bookedLoadsCount > 1 ? 's' : ''} Booked (${capacityUtilization}% Full)`
-                            : 'Searching for Backhaul'}
+
+                        <span
+                          style={{
+                            fontSize: '0.75rem',
+                            backgroundColor: 'var(--surface-3)',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-color)',
+                            color: 'var(--text-primary)'
+                          }}
+                        >
+                          Cap: {formatWeight(trip.totalCapacityKg)}
                         </span>
+
+                        {/* Status Pill with Live Pulse Dot */}
+                        <span className="status-pill status-in-transit" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="status-dot-pulse" />
+                          <span>
+                            {bookedLoadsCount > 0
+                              ? `${bookedLoadsCount} Load${bookedLoadsCount > 1 ? 's' : ''} Booked (${capacityUtilization}% Full)`
+                              : 'Searching for Backhaul'}
+                          </span>
+                        </span>
+                      </div>
+
+                      {/* Driver Computed Payout Figure */}
+                      <span className="driver-payout-badge" title="Driver Net Earnings Payout">
+                        <span className="payout-label">Payout:</span>
+                        <span className="payout-amount">{formatCurrency(trip.minPrice)}</span>
                       </span>
                     </div>
                   </div>
@@ -297,10 +304,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
               </div>
 
               <div
-                className="stat-number"
+                className="stat-number gradient-stat-teal"
                 style={{
                   fontSize: '2.25rem',
-                  color: 'var(--brand-teal)',
                   marginBottom: '16px'
                 }}
               >
@@ -308,7 +314,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
               </div>
 
               {/* Interactive Recharts Area Chart with Tooltip */}
-              <div style={{ margin: '16px 0 24px', background: 'var(--surface-3)', padding: '16px 12px 6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <div style={{ margin: '16px 0 24px', background: 'var(--surface-2)', padding: '16px 12px 6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '0 6px' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
                     30-Day Revenue Trend (₹)
@@ -334,7 +340,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
                         content={({ active, payload, label }) => {
                           if (active && payload && payload.length) {
                             return (
-                              <div style={{ background: '#0F172A', border: '1px solid rgba(29,158,117,0.4)', borderRadius: '8px', padding: '8px 12px', boxShadow: '0 8px 20px rgba(0,0,0,0.5)', color: '#FFFFFF', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                              <div className="chart-tooltip-animated" style={{ background: '#0F172A', border: '1px solid rgba(29,158,117,0.4)', borderRadius: '8px', padding: '8px 12px', boxShadow: '0 8px 20px rgba(0,0,0,0.5)', color: '#FFFFFF', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
                                 <div style={{ color: '#94A3B8', marginBottom: '2px' }}>{label}</div>
                                 <div style={{ color: '#1D9E75', fontWeight: 'bold', fontSize: '13px' }}>{formatCurrency(payload[0].value as number)}</div>
                                 <div style={{ color: '#E2E8F0', marginTop: '2px', fontSize: '10px' }}>{payload[0].payload.loads} Return Consignments</div>
@@ -344,7 +350,19 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({
                           return null;
                         }}
                       />
-                      <Area type="monotone" dataKey="revenue" stroke="#1D9E75" strokeWidth={2.5} fillOpacity={1} fill="url(#driverRevenueGrad)" dot={{ r: 3, fill: '#1D9E75', strokeWidth: 1.5, stroke: '#FFFFFF' }} activeDot={{ r: 5, fill: '#1D9E75', stroke: '#FFFFFF', strokeWidth: 2 }} />
+                      <Area
+                        type="monotone"
+                        dataKey="revenue"
+                        stroke="#1D9E75"
+                        strokeWidth={2.5}
+                        fillOpacity={1}
+                        fill="url(#driverRevenueGrad)"
+                        dot={{ r: 3, fill: '#1D9E75', strokeWidth: 1.5, stroke: '#FFFFFF' }}
+                        activeDot={{ r: 5, fill: '#1D9E75', stroke: '#FFFFFF', strokeWidth: 2 }}
+                        isAnimationActive={true}
+                        animationDuration={1400}
+                        animationEasing="ease-out"
+                      />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Filter, Star, Truck, ArrowRight, ShieldCheck, Zap, SlidersHorizontal, ArrowLeft, Leaf, TrendingUp, BarChart3 } from 'lucide-react';
+import { Star, Truck, ArrowRight, SlidersHorizontal, ArrowLeft, Leaf, BarChart3 } from 'lucide-react';
 import { MatchResult, LoadRequest } from '../../types/logistics';
 import { formatCurrency, formatWeight, getMatchScoreClass } from '../../utils/formatting';
 import { AnimatedProgressRing } from '../common/AnimatedProgressRing';
@@ -13,13 +13,13 @@ interface MatchesSearchResultsProps {
 
 export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
   matches,
-  activeLoad,
+  activeLoad: _activeLoad,
   onSelectMatch,
   onBack
 }) => {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
-  const [minScore, setMinScore] = useState(60);
-  const [maxPrice, setMaxPrice] = useState(25000);
+  const [minScore, setMinScore] = useState(40);
+  const [maxPrice, setMaxPrice] = useState(150000);
   const [expandedScoreCard, setExpandedScoreCard] = useState<string | null>(null);
 
   const filteredMatches = matches.filter(
@@ -126,7 +126,6 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                   padding: '0',
                   borderRadius: 'var(--radius-card)',
                   border: match.matchScore >= 90 ? '1.5px solid var(--brand-teal)' : '1px solid var(--border-color)',
-                  boxShadow: 'var(--shadow-sm)',
                   display: 'flex',
                   flexDirection: 'column',
                   position: 'relative',
@@ -231,7 +230,8 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                     {/* Explanation Strip */}
                     <div
                       style={{
-                        backgroundColor: 'var(--surface-3)',
+                        backgroundColor: 'var(--surface-2)',
+                        border: '1px solid var(--border-light)',
                         padding: '10px 14px',
                         borderRadius: '8px',
                         fontSize: '0.8125rem',
@@ -239,7 +239,7 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                         lineHeight: 1.45
                       }}
                     >
-                      <strong style={{ color: 'var(--brand-teal)' }}>Algorithm Insight:</strong> {match.explanation}
+                      <strong style={{ color: 'var(--brand-teal)' }}>Match Insight:</strong> {match.explanation}
                     </div>
 
                     {/* Driver & Truck Details Row */}
@@ -313,19 +313,19 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                     style={{
                       borderTop: '1px solid var(--border-light)',
                       padding: '16px 24px',
-                      backgroundColor: 'var(--surface-3)',
+                      backgroundColor: 'var(--surface-2)',
                       animation: 'fadeIn 0.25s ease-out'
                     }}
                   >
                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '12px' }}>
-                      AI Match Score Breakdown
+                      Match Compatibility Factor Breakdown
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
                       {[
-                        { label: 'Route Overlap', value: match.routeOverlapScore, icon: '🛣️' },
-                        { label: 'Capacity Fit', value: match.capacityScore, icon: '📦' },
-                        { label: 'Time Window', value: match.timeWindowScore, icon: '⏱️' },
-                        { label: 'Price Score', value: match.priceScore, icon: '💰' },
+                        { label: 'Route Overlap (35%)', value: match.routeOverlapScore, icon: '🛣️' },
+                        { label: 'Capacity Fit (25%)', value: match.capacityScore, icon: '📦' },
+                        { label: 'Schedule Alignment (20%)', value: match.timeWindowScore, icon: '⏱️' },
+                        { label: 'Detour Efficiency (15%)', value: match.priceScore, icon: '📍' },
                       ].map((dim) => (
                         <div
                           key={dim.label}
@@ -335,7 +335,7 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                             gap: '10px',
                             padding: '10px 12px',
                             borderRadius: '8px',
-                            backgroundColor: 'var(--surface-2)',
+                            backgroundColor: 'var(--surface-card)',
                             border: '1px solid var(--border-light)'
                           }}
                         >

@@ -7,6 +7,10 @@ import { Sidebar } from './components/common/Sidebar';
 import { Toast } from './components/common/Toast';
 import { ChatDrawer } from './components/common/ChatDrawer';
 import { MatchingEngineModal } from './components/common/MatchingEngineModal';
+import { AuthModal } from './components/common/AuthModal';
+
+// Admin Components
+import { AdminDashboard } from './components/admin/AdminDashboard';
 
 // Landing Page Components
 import { HeroSection } from './components/landing/HeroSection';
@@ -35,17 +39,17 @@ import { BookingConfirmation } from './components/core/BookingConfirmation';
 import { PaymentEscrow } from './components/core/PaymentEscrow';
 import { LiveTrackingMap } from './components/core/LiveTrackingMap';
 
-import { StudioTechApp } from './components/studiotech/StudioTechApp';
-
 export const App: React.FC = () => {
   const {
     state,
     setPersona,
     setCurrentPage,
     toggleDarkMode,
-    showToast,
+    showToast: _showToast,
     addTrip,
+    cancelTrip,
     addLoadRequest,
+    cancelLoad,
     selectMatchForBooking,
     confirmBookingAndProceedToPayment,
     completePaymentAndStartTracking,
@@ -55,9 +59,15 @@ export const App: React.FC = () => {
     toggleChatDrawer,
     setSelectedTripId,
     setSelectedLoadId,
-    setSelectedBookingId,
+    setSelectedBookingId: _setSelectedBookingId,
     getMatchesForLoad,
-    resetDemoState
+    resetDemoState,
+    openAuthModal,
+    closeAuthModal,
+    registerUser,
+    loginUser,
+    logoutUser,
+    continueAsDemoUser
   } = useLogisticsStore();
 
   const selectedTrip = state.trips.find((t) => t.id === state.selectedTripId) || state.trips[0];
@@ -74,12 +84,16 @@ export const App: React.FC = () => {
         isDarkMode={state.isDarkMode}
         notifications={state.notifications}
         unreadMessagesCount={state.chatMessages.length > 2 ? 1 : 0}
+        authUser={state.authUser}
+        isRealtimeConnected={state.isRealtimeConnected}
         onSelectPersona={setPersona}
         onNavigate={setCurrentPage}
         onToggleDarkMode={toggleDarkMode}
         onOpenMatchingEngine={() => toggleMatchingEngineModal(true)}
         onOpenChat={() => toggleChatDrawer(true)}
         onResetDemo={resetDemoState}
+        onOpenAuth={() => openAuthModal('customer')}
+        onSignOut={logoutUser}
       />
 
       {/* Main Layout Body */}
@@ -89,6 +103,7 @@ export const App: React.FC = () => {
           <Sidebar
             currentPersona={state.currentPersona}
             currentPage={state.currentPage}
+            authUser={state.authUser}
             onNavigate={setCurrentPage}
             onSelectPersona={setPersona}
           />
@@ -104,9 +119,6 @@ export const App: React.FC = () => {
             width: '100%'
           }}
         >
-          {/* StudioTech Website Clone View */}
-          {state.currentPage === 'studiotech' && <StudioTechApp />}
-
           {/* 1. PUBLIC MARKETING LANDING PAGE */}
           {state.currentPersona === 'guest' && state.currentPage === 'home' && (
             <div className="w-full">
@@ -148,6 +160,7 @@ export const App: React.FC = () => {
                   earnings={state.earnings}
                   onNavigate={setCurrentPage}
                   onSelectTrip={setSelectedTripId}
+                  onCancelTrip={cancelTrip}
                 />
               )}
 
@@ -157,6 +170,7 @@ export const App: React.FC = () => {
                   earnings={state.earnings}
                   onNavigate={setCurrentPage}
                   onSelectTrip={setSelectedTripId}
+                  onCancelTrip={cancelTrip}
                 />
               )}
 
@@ -193,6 +207,7 @@ export const App: React.FC = () => {
                     setSelectedLoadId(loadId);
                     setCurrentPage('matches');
                   }}
+                  onCancelLoad={cancelLoad}
                 />
               )}
 
@@ -205,6 +220,7 @@ export const App: React.FC = () => {
                     setSelectedLoadId(loadId);
                     setCurrentPage('matches');
                   }}
+                  onCancelLoad={cancelLoad}
                 />
               )}
 
@@ -218,7 +234,7 @@ export const App: React.FC = () => {
               {state.currentPage === 'customer-load-details' && selectedLoad && (
                 <LoadDetails
                   load={selectedLoad}
-                  matchedTrip={selectedTrip}
+                  matchedTrip={state.trips.find((t) => t.id === selectedLoad.matchedTripId) || state.trips.find((t) => t.corridor === selectedLoad.corridor) || selectedTrip}
                   onBack={() => setCurrentPage('customer-dashboard')}
                   onBrowseMatches={(loadId) => {
                     setSelectedLoadId(loadId);
@@ -230,7 +246,17 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* 4. CORE PROCESS (SHARED) SCREENS */}
+          {/* 4. PLATFORM OPS (ADMIN) SCREENS */}
+          {state.currentPersona === 'admin' && state.currentPage === 'admin-dashboard' && (
+            <AdminDashboard
+              trips={state.trips}
+              loads={state.loads}
+              bookings={state.bookings}
+              onNavigate={setCurrentPage}
+            />
+          )}
+
+          {/* 5. CORE PROCESS (SHARED) SCREENS */}
           {state.currentPage === 'matches' && (
             <MatchesSearchResults
               matches={matchesList}
@@ -286,6 +312,15 @@ export const App: React.FC = () => {
         currentPersona={state.currentPersona}
         onClose={() => toggleChatDrawer(false)}
         onSendMessage={sendChatMessage}
+      />
+
+      <AuthModal
+        isOpen={state.isAuthModalOpen}
+        initialRole={state.authModalRole}
+        onClose={closeAuthModal}
+        onSignIn={loginUser}
+        onSignUp={registerUser}
+        onDemoContinue={continueAsDemoUser}
       />
 
       <Toast toast={state.toastMessage} />

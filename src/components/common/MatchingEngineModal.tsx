@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Cpu, TrendingUp, IndianRupee, ArrowRight, CheckCircle2, ShieldCheck, Zap } from 'lucide-react';
+import { X, Cpu } from 'lucide-react';
 import { CORRIDORS } from '../../services/routingEngine';
 
 interface MatchingEngineModalProps {
@@ -9,15 +9,14 @@ interface MatchingEngineModalProps {
 
 export const MatchingEngineModal: React.FC<MatchingEngineModalProps> = ({ isOpen, onClose }) => {
   const [selectedCorridorKey, setSelectedCorridorKey] = useState<string>('HYD-WAR');
-  const [truckCapacityTons, setTruckCapacityTons] = useState<number>(30);
-  const [forwardFilledTons, setForwardFilledTons] = useState<number>(20);
+  const [truckCapacityTons, _setTruckCapacityTons] = useState<number>(30);
+  const [, _setForwardFilledTons] = useState<number>(20);
 
   if (!isOpen) return null;
 
   const currentCorridor = CORRIDORS[selectedCorridorKey] || CORRIDORS['HYD-WAR'];
   const spareReturnTons = truckCapacityTons - (truckCapacityTons - 15); // e.g. 15 tons spare return
   const standardFuelCost = Math.round(currentCorridor.distanceKm * 28); // approx ₹28/km diesel for 30-ton
-  const standaloneReturnIncome = 0; // standard empty deadhead = ₹0
   const returnFlowBackhaulIncome = Math.round(currentCorridor.distanceKm * 18 * (spareReturnTons / 10));
   const retailerSavings = Math.round(returnFlowBackhaulIncome * 0.35);
 

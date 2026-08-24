@@ -1,77 +1,112 @@
 export interface PricingBreakdown {
   distanceKm: number;
   weightKg: number;
-  baseRatePerKm: number;
+  weightTons: number;
+  baseRatePerTonKm: number;
   baseFreightCost: number;
-  weightMultiplier: number;
-  demandMultiplier: number;
+  marketPrice: number;
   backhaulDiscountRate: number;
   backhaulDiscountAmount: number;
-  systemRecommendedPrice: number;
+  driverPayout: number;
+  systemRecommendedPrice: number; // alias for driver payout
+  platformDiscountRate: number;
   platformFee: number;
   insuranceFee: number;
+  retailerBudget: number;
   totalPrice: number;
-  marketPrice: number;
   savingsPercentage: number;
   co2SavedKg: number;
 }
 
-export function calculateDeterministicPrice(input: {
+/**
+ * Single-source-of-truth realistic commercial freight & backhaul pricing engine.
+ * Base rate per ton-km for Indian commercial freight: ₹8-15 / ton-km depending on vehicle class.
+ * Reconciles Driver Payout and Retailer Budget:
+ *   driverPayout = Math.round(retailerBudget * (1 - platformDiscountRate))
+ *   platformFee = retailerBudget - driverPayout
+ *   driverPayout + platformFee === retailerBudget (Exact Reconciliation)
+ */
+export function calculateBackhaulPricing(input: {
   distanceKm: number;
   weightKg: number;
   vehicleType?: string;
   corridorId?: string;
   isReturnTrip?: boolean;
+  retailerBudget?: number;
 }): PricingBreakdown {
-  const distanceKm = Math.max(10, input.distanceKm);
-  const weightKg = Math.max(100, input.weightKg);
+  const distanceKm = Math.max(10, Math.round(input.distanceKm));
+  const weightKg = Math.max(50, Math.round(input.weightKg));
+  const weightTons = weightKg / 1000;
 
-  // Base per-km rate (approx ₹14 to ₹22 per km depending on fleet class)
-  let baseRatePerKm = 18;
-  if (input.vehicleType?.includes('30-Ton') || input.vehicleType?.includes('35-Ton')) {
-    baseRatePerKm = 24;
-  } else if (input.vehicleType?.includes('4-Ton')) {
-    baseRatePerKm = 14;
+  // Realistic Base per ton-km commercial freight rate in India (₹8 to ₹15 / ton-km)
+  let baseRatePerTonKm = 12; // Standard default LCV/MCV rate
+  if (input.vehicleType?.includes('30-Ton') || input.vehicleType?.includes('35-Ton') || input.vehicleType?.includes('Multi-Axle')) {
+    baseRatePerTonKm = 9.5; // Heavy Multi-Axle bulk efficiency
+  } else if (input.vehicleType?.includes('4-Ton') || input.vehicleType?.includes('Tata 407') || input.vehicleType?.includes('Ace')) {
+    baseRatePerTonKm = 14.0; // Light Commercial Vehicle higher per-ton rate
+  } else if (weightTons >= 10) {
+    baseRatePerTonKm = 9.0;
+  } else if (weightTons <= 1) {
+    baseRatePerTonKm = 14.5;
   }
 
-  const baseFreightCost = Math.round(distanceKm * baseRatePerKm);
-  const weightMultiplier = Math.max(0.85, Math.min(2.5, 0.7 + (weightKg / 5000)));
-  const demandMultiplier = 1.05; // Corridor baseline demand coefficient
+  // Minimum base vehicle mobilization cost (fuel + toll baseline for distance)
+  const baseMobilization = Math.round(distanceKm * 3.5);
+  // Cargo mass freight cost
+  const cargoFreight = Math.round(distanceKm * weightTons * baseRatePerTonKm);
+  const rawStandardCost = Math.max(1400, baseMobilization + cargoFreight);
 
-  // Return-leg efficiency discount (25% discount off standard one-way freight rates)
-  const backhaulDiscountRate = input.isReturnTrip !== false ? 0.25 : 0;
-  const grossCalculatedPrice = Math.round(baseFreightCost * weightMultiplier * demandMultiplier);
-  const backhaulDiscountAmount = Math.round(grossCalculatedPrice * backhaulDiscountRate);
+  // Standard spot market price (one-way broker booking without return optimization)
+  const marketPrice = Math.round(rawStandardCost * 1.35);
 
-  const systemRecommendedPrice = Math.max(1200, grossCalculatedPrice - backhaulDiscountAmount);
+  // Backhaul Return Leg Discount: 35% discount for shipper vs spot market
+  const isReturn = input.isReturnTrip !== false;
+  const backhaulDiscountRate = isReturn ? 0.35 : 0;
+  const backhaulDiscountAmount = Math.round(marketPrice * backhaulDiscountRate);
 
-  // Platform commercial model fees
-  const platformFee = Math.round(systemRecommendedPrice * 0.03); // 3% SaaS platform fee
-  const insuranceFee = 150; // Standard transit insurance cover
-  const totalPrice = systemRecommendedPrice + platformFee + insuranceFee;
+  // Platform discount / take rate (8% commercial SaaS / escrow platform rate)
+  const platformDiscountRate = 0.08;
 
-  // Market price comparison (standard one-way booking without return-trip optimization)
-  const marketPrice = Math.round(systemRecommendedPrice * 1.38);
-  const savingsPercentage = Math.round(((marketPrice - systemRecommendedPrice) / marketPrice) * 100);
+  // Retailer Budget: either passed directly or computed from discounted backhaul market price
+  const retailerBudget = input.retailerBudget && input.retailerBudget > 0
+    ? input.retailerBudget
+    : Math.max(1300, marketPrice - backhaulDiscountAmount);
 
-  // Carbon offset: ~85g CO2 per ton-km saved by filling empty return legs
-  const co2SavedKg = Math.round((weightKg / 1000) * (distanceKm * 0.085));
+  // Driver Payout: strictly derived via driver payout = retailer budget * (1 - platform_discount_rate)
+  const driverPayout = Math.round(retailerBudget * (1 - platformDiscountRate));
+
+  // Platform Fee: exact difference so driverPayout + platformFee === retailerBudget
+  const platformFee = retailerBudget - driverPayout;
+
+  const insuranceFee = 150; // Flat cargo transit insurance
+  const totalPrice = retailerBudget + insuranceFee;
+
+  // Shipper savings compared to standard one-way spot broker price
+  const savingsPercentage = Math.max(15, Math.round(((marketPrice - retailerBudget) / marketPrice) * 100));
+
+  // CO2 offset: ~85g CO2 per ton-km saved by filling otherwise empty return legs
+  const co2SavedKg = Math.round(weightTons * distanceKm * 0.085);
 
   return {
     distanceKm,
     weightKg,
-    baseRatePerKm,
-    baseFreightCost,
-    weightMultiplier,
-    demandMultiplier,
+    weightTons,
+    baseRatePerTonKm,
+    baseFreightCost: rawStandardCost,
+    marketPrice,
     backhaulDiscountRate,
     backhaulDiscountAmount,
-    systemRecommendedPrice,
+    driverPayout,
+    systemRecommendedPrice: driverPayout,
+    platformDiscountRate,
     platformFee,
     insuranceFee,
+    retailerBudget,
     totalPrice,
-    marketPrice,
     savingsPercentage,
     co2SavedKg
   };
 }
+
+export const calculateDeterministicPrice = calculateBackhaulPricing;
+

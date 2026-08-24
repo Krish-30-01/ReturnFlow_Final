@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Send, Phone, ShieldCheck, UserCheck } from 'lucide-react';
+import { X, Send, ShieldCheck, UserCheck } from 'lucide-react';
 import { ChatMessage, Persona } from '../../types/logistics';
 
 interface ChatDrawerProps {

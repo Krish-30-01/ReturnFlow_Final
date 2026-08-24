@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet, Route, Package, CheckCircle2, ArrowUpRight, ShieldCheck, Download, IndianRupee } from 'lucide-react';
+import { Wallet, Route, Package, CheckCircle2, Download } from 'lucide-react';
 import { EarningsRecord } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
 import { useCountUp } from '../../hooks/useCountUp';
@@ -9,10 +9,10 @@ interface DriverEarningsProps {
   onNavigate: (page: string) => void;
 }
 
-export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavigate }) => {
-  const targetThisMonth = earnings.reduce((sum, e) => sum + e.amount, 0) + 28450;
-  const targetTrips = 14;
-  const targetLoads = 32;
+export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavigate: _onNavigate }) => {
+  const targetThisMonth = earnings.reduce((sum, e) => sum + e.amount, 0);
+  const targetTrips = earnings.length;
+  const targetLoads = earnings.reduce((sum, e) => sum + (e.loadsCount || 1), 0);
 
   const thisMonth = useCountUp(targetThisMonth, 1500, 0);
   const trips = useCountUp(targetTrips, 1200, 0);
@@ -69,7 +69,7 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
               This Month Net Earnings
             </span>
           </div>
-          <div className="stat-number" style={{ fontSize: '2rem', color: 'var(--brand-teal)' }}>
+          <div className="stat-number gradient-stat-teal" style={{ fontSize: '2rem' }}>
             {formatCurrency(thisMonth)}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -98,7 +98,7 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
               Completed Corridors
             </span>
           </div>
-          <div className="stat-number" style={{ fontSize: '2rem', color: 'var(--brand-teal)' }}>
+          <div className="stat-number gradient-stat-teal" style={{ fontSize: '2rem' }}>
             {trips}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -127,7 +127,7 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
               Shipper Consignments
             </span>
           </div>
-          <div className="stat-number" style={{ fontSize: '2rem', color: 'var(--brand-teal)' }}>
+          <div className="stat-number gradient-stat-teal" style={{ fontSize: '2rem' }}>
             {loads}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -138,12 +138,11 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
 
       {/* Reverse-Chronological Earnings History Card */}
       <div
-        className="card"
+        className="card card-teal"
         style={{
           padding: '28px',
           borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-sm)',
-          border: '1px solid var(--border-color)'
+          boxShadow: 'var(--shadow-sm)'
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -159,16 +158,15 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
           {earnings.map((record) => (
             <div
               key={record.id}
-              className="card-hoverable"
               style={{
                 padding: '16px 20px',
-                backgroundColor: 'var(--surface-3)',
+                backgroundColor: 'var(--surface-2)',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-color)',
                 display: 'flex',
-                flexWrap: 'wrap',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
                 gap: '12px'
               }}
             >

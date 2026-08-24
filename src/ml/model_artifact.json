@@ -1,36 +1,24 @@
 {
-  "modelName": "LogisticsFreightGBDT_V2",
-  "version": "2.4.0",
-  "trainedAt": "2026-08-20T10:00:00Z",
-  "taskType": "Regression & Match Scoring",
-  "features": [
+  "modelName": "ReturnFlowPricingHeuristic",
+  "version": "1.2.0",
+  "updatedAt": "2026-08-20T10:00:00Z",
+  "taskType": "Deterministic price estimation & match scoring",
+  "methodology": "Rule-based linear pricing model calibrated against published Indian truck market rates (₹/ton-km) and backhaul discount benchmarks. Not a trained ML model — coefficients are hand-tuned domain parameters, fully auditable.",
+  "inputs": [
     "distanceKm",
     "weightKg",
-    "vehicleCapacityKg",
     "corridorDemandMultiplier",
-    "isWeekend",
-    "dayOfWeek"
+    "isReturnTrip"
   ],
-  "metrics": {
-    "trainMAE": 142.5,
-    "valMAE": 158.2,
-    "testMAE": 164.0,
-    "testRMSE": 218.4,
-    "r2Score": 0.914,
-    "matchAccuracyROC": 0.942
-  },
-  "hyperparameters": {
-    "n_estimators": 100,
-    "learning_rate": 0.08,
-    "max_depth": 5,
-    "subsample": 0.85
-  },
-  "coefficients": {
+  "parameters": {
     "baseRatePerKm": 17.85,
     "weightCoeff": 0.42,
     "demandCoeff": 1250.0,
     "weekendCoeff": 350.0,
     "intercept": 450.0
   },
-  "confidenceBoundsPercent": 4.5
+  "expectedAccuracy": {
+    "note": "Indicative tolerance vs spot-market quotes on seeded corridors; not a statistical metric.",
+    "tolerancePercent": 4.5
+  }
 }

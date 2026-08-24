@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Cpu, CheckCircle2, ShieldCheck, ArrowRight, Truck, Store, IndianRupee } from 'lucide-react';
+import { Cpu, CheckCircle2, ShieldCheck, ArrowRight, Store, IndianRupee } from 'lucide-react';
 
 interface StepData {
   id: number;

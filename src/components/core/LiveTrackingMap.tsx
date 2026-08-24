@@ -1,23 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  CheckCircle2,
   Phone,
   MessageSquare,
   Navigation,
-  Clock,
   ShieldCheck,
-  Truck,
-  MapPin,
   FastForward,
-  Info,
   Star,
   Route,
   Gauge,
   Timer,
   ArrowLeft,
-  Signal,
-  Fuel,
-  ThermometerSun
+  Signal
 } from 'lucide-react';
 import { Booking, ShipmentStatus } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
@@ -96,7 +89,7 @@ const EtaCountdown: React.FC<{ etaMinutes: number }> = ({ etaMinutes }) => {
       setSeconds((s) => Math.max(0, s - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [seconds > 0]);
+  }, [seconds]);
 
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);

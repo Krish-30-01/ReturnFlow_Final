@@ -2,12 +2,43 @@ import React, { useState } from 'react';
 import { Lock, ShieldCheck, CheckCircle2, ArrowLeft, Smartphone, CreditCard, Wallet, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MatchResult, PaymentMethod } from '../../types/logistics';
-import { formatCurrency, formatWeight } from '../../utils/formatting';
+import { formatCurrency } from '../../utils/formatting';
+import { calculateBackhaulPricing } from '../../services/pricingEngine';
+import { calculateDistanceAndDuration } from '../../services/routingEngine';
 
 interface PaymentEscrowProps {
   match: MatchResult;
   onPaymentSuccess: (match: MatchResult, method: PaymentMethod) => void;
   onBack: () => void;
+}
+
+// Razorpay test-mode integration. Set VITE_RAZORPAY_KEY_ID (rzp_test_...)
+// in .env to route the escrow deposit through the real Razorpay Checkout
+// sheet; without a key the payment runs through the built-in simulator.
+const RAZORPAY_KEY_ID = (import.meta.env.VITE_RAZORPAY_KEY_ID ?? '').trim();
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+  }
+}
+
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!RAZORPAY_KEY_ID) {
+      resolve(false);
+      return;
+    }
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(!!window.Razorpay);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 }
 
 export const PaymentEscrow: React.FC<PaymentEscrowProps> = ({ match, onPaymentSuccess, onBack }) => {
@@ -16,37 +47,77 @@ export const PaymentEscrow: React.FC<PaymentEscrowProps> = ({ match, onPaymentSu
   const [isSuccess, setIsSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  const basePrice = match.calculatedPrice;
-  const platformFee = Math.round(basePrice * 0.03);
-  const insuranceFee = 150;
-  const totalAmount = basePrice + platformFee + insuranceFee;
+  const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
+  const route = calculateDistanceAndDuration(match.load.from, match.load.to);
+  const pricing = calculateBackhaulPricing({
+    distanceKm: route.distanceKm,
+    weightKg,
+    vehicleType: match.trip.vehicleType,
+    corridorId: match.trip.corridor,
+    isReturnTrip: true,
+    retailerBudget: match.calculatedPrice
+  });
 
-  const handlePay = () => {
+  const driverPayout = pricing.driverPayout;
+  const platformFee = pricing.platformFee;
+  const retailerBudget = pricing.retailerBudget;
+  const insuranceFee = 150;
+  const totalAmount = retailerBudget + insuranceFee;
+  const driverName = match.trip.driverName;
+
+  const completeSuccessFlow = () => {
+    setIsProcessing(false);
+    setIsSuccess(true);
+
+    try {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#1D9E75', '#BA7517', '#042C53']
+      });
+    } catch {
+      console.log('Confetti triggered');
+    }
+
+    setTimeout(() => {
+      onPaymentSuccess(match, method);
+    }, 1600);
+  };
+
+  const handlePay = async () => {
     setIsProcessing(true);
     setPaymentError(null);
 
-    // Simulate escrow network processing
-    setTimeout(() => {
-      setIsProcessing(false);
-      setIsSuccess(true);
-
-      // Trigger Confetti Celebration
+    // Preferred path: real Razorpay Checkout (test mode)
+    const razorpayReady = await loadRazorpayScript();
+    if (razorpayReady && window.Razorpay) {
       try {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#1D9E75', '#BA7517', '#042C53']
+        const rzp = new window.Razorpay({
+          key: RAZORPAY_KEY_ID,
+          amount: Math.round(totalAmount * 100), // paise
+          currency: 'INR',
+          name: 'ReturnFlow Escrow',
+          description: `Backhaul freight escrow · ${match.load.from} → ${match.load.to}`,
+          image: 'https://svgshare.com/i/14jz.svg',
+          prefill: {
+            name: match.load.customerName,
+            contact: match.load.customerPhone.replace(/\s/g, '')
+          },
+          notes: { booking_load: match.load.id, trip: match.trip.id },
+          theme: { color: '#1D9E75' },
+          handler: () => completeSuccessFlow(),
+          modal: { ondismiss: () => setIsProcessing(false) }
         });
-      } catch (e) {
-        console.log('Confetti triggered');
+        rzp.open();
+        return;
+      } catch (err) {
+        console.warn('Razorpay checkout failed — falling back to simulator.', err);
       }
+    }
 
-      // Auto redirect to tracking after 1.5s
-      setTimeout(() => {
-        onPaymentSuccess(match, method);
-      }, 1600);
-    }, 1200);
+    // Fallback: simulated escrow network processing
+    setTimeout(completeSuccessFlow, 1200);
   };
 
   return (
@@ -169,12 +240,12 @@ export const PaymentEscrow: React.FC<PaymentEscrowProps> = ({ match, onPaymentSu
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.875rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Base Freight (Backhaul Split):</span>
-                <span className="mono-text" style={{ fontWeight: 600 }}>{formatCurrency(basePrice)}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Driver Payout (Backhaul Leg):</span>
+                <span className="mono-text" style={{ fontWeight: 600 }}>{formatCurrency(driverPayout)}</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.875rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Platform Escrow Fee (3%):</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Platform Escrow Fee (8%):</span>
                 <span className="mono-text" style={{ fontWeight: 600 }}>{formatCurrency(platformFee)}</span>
               </div>
 
@@ -250,7 +321,7 @@ export const PaymentEscrow: React.FC<PaymentEscrowProps> = ({ match, onPaymentSu
             >
               <Lock size={18} color="#1D9E75" style={{ flexShrink: 0, marginTop: '2px' }} />
               <div>
-                <strong>RBI-Compliant Escrow Protection:</strong> Funds are locked safely and will only be disbursed to driver Rajesh Kumar once destination delivery is verified.
+                <strong>RBI-Compliant Escrow Protection:</strong> Funds are locked safely and will only be disbursed to driver {driverName} once destination delivery is verified.
               </div>
             </div>
 

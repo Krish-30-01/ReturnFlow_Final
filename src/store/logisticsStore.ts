@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Trip,
   LoadRequest,
@@ -7,210 +7,23 @@ import {
   ChatMessage,
   NotificationItem,
   Persona,
-  ShipmentStatus,
   PaymentMethod,
   MatchResult,
-  CanonicalShipment
+  CanonicalShipment,
+  NewTripInput,
+  NewLoadInput
 } from '../types/logistics';
-import { calculateMatchScore } from '../utils/matchingAlgorithm';
+import { getCandidateMatchesForLoad } from '../utils/matchingAlgorithm';
 import { calculateDistanceAndDuration } from '../services/routingEngine';
-import { calculateDeterministicPrice } from '../services/pricingEngine';
+import { calculateBackhaulPricing } from '../services/pricingEngine';
 import { INITIAL_CANONICAL_SHIPMENTS, createCanonicalShipment } from '../services/seedService';
-
-// Mock Initial Trips derived from canonical shipments
-const INITIAL_TRIPS: Trip[] = [
-  {
-    id: 'trip-101',
-    driverId: 'drv-rajesh',
-    driverName: 'Rajesh Kumar',
-    driverRating: 4.9,
-    driverAvatarText: 'RK',
-    driverPhone: '+91 98490 23145',
-    vehicleType: 'TATA 407 (4-Ton Commercial)',
-    vehiclePlate: 'TS-09-UB-4421',
-    from: 'Hyderabad (Uppal)',
-    to: 'Warangal Industrial Zone',
-    corridor: 'HYD-WAR',
-    departureDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    departureTimeWindow: '06:00 AM – 10:00 AM',
-    totalCapacityKg: 4000,
-    bookedCapacityKg: 350,
-    preferredLoadType: 'FMCG & General Goods',
-    minPrice: 2200,
-    isReturnTrip: true,
-    status: 'active',
-    notes: 'Returning from Uppal warehouse delivery. Flatbed with waterproof tarpaulin ready.',
-    bookedLoads: [
-      {
-        id: 'bload-1',
-        from: 'Bhongir',
-        to: 'Warangal',
-        weightKg: 350,
-        price: 1400,
-        shipperName: 'Srinivasa Wholesale Grocers',
-        goodsType: 'Packaged Spices',
-        bookingTime: 'Today, 10:15 AM'
-      }
-    ]
-  },
-  {
-    id: 'trip-102',
-    driverId: 'drv-rajesh',
-    driverName: 'Rajesh Kumar',
-    driverRating: 4.9,
-    driverAvatarText: 'RK',
-    driverPhone: '+91 98490 23145',
-    vehicleType: 'TATA Signa 3523.TK (30-Ton Multi-Axle)',
-    vehiclePlate: 'TS-07-EA-9912',
-    from: 'Hyderabad (Shamshabad)',
-    to: 'Bangalore (Peenya)',
-    corridor: 'HYD-BLR',
-    departureDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-    departureTimeWindow: '04:00 AM – 08:00 AM',
-    totalCapacityKg: 15000,
-    bookedCapacityKg: 8500,
-    preferredLoadType: 'Industrial / Electronics / FMCG',
-    minPrice: 18500,
-    isReturnTrip: true,
-    status: 'active',
-    notes: 'Scheduled backhaul return to Bangalore depot. GPS verified, dual drivers.',
-    bookedLoads: [
-      {
-        id: 'bload-2',
-        from: 'Shamshabad Logistics Park',
-        to: 'Anantapur Hub',
-        weightKg: 5000,
-        price: 11000,
-        shipperName: 'Deccan Hardware Ltd',
-        goodsType: 'Construction Fasteners',
-        bookingTime: 'Yesterday'
-      }
-    ]
-  }
-];
-
-const INITIAL_LOADS: LoadRequest[] = [
-  {
-    id: 'load-201',
-    customerId: 'cust-priya',
-    customerName: 'Priya Sharma',
-    customerCompany: 'Apex Retail Networks Pvt Ltd',
-    customerPhone: '+91 94401 55678',
-    from: 'Hyderabad (Uppal)',
-    to: 'Warangal Industrial Zone',
-    corridor: 'HYD-WAR',
-    date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    timeWindow: 'Morning (07:00 AM – 11:00 AM)',
-    weight: 400,
-    weightUnit: 'Kg',
-    goodsType: 'Furniture & Display Fixtures',
-    budget: 2500,
-    specialInstructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
-    status: 'Searching',
-    createdAt: '10 minutes ago'
-  },
-  {
-    id: 'load-202',
-    customerId: 'cust-priya',
-    customerName: 'Priya Sharma',
-    customerCompany: 'Apex Retail Networks Pvt Ltd',
-    customerPhone: '+91 94401 55678',
-    from: 'Hyderabad (Shamshabad)',
-    to: 'Bangalore (Peenya)',
-    corridor: 'HYD-BLR',
-    date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-    timeWindow: 'Flexible',
-    weight: 2500,
-    weightUnit: 'Kg',
-    goodsType: 'FMCG Packaged Goods',
-    budget: 9500,
-    specialInstructions: 'Palletized cartons. Forklift available at Bangalore dock.',
-    status: 'Booked',
-    bookingId: 'book-301',
-    matchedTripId: 'trip-102',
-    createdAt: '2 hours ago'
-  }
-];
-
-const INITIAL_BOOKINGS: Booking[] = [
-  {
-    id: 'book-301',
-    tripId: 'trip-102',
-    loadId: 'load-202',
-    bookingDate: new Date().toISOString().split('T')[0],
-    driverId: 'drv-rajesh',
-    driverName: 'Rajesh Kumar',
-    driverRating: 4.9,
-    driverPhone: '+91 98490 23145',
-    driverAvatar: 'RK',
-    vehicleType: 'TATA Signa 3523.TK (30-Ton)',
-    vehiclePlate: 'TS-07-EA-9912',
-    customerId: 'cust-priya',
-    customerName: 'Priya Sharma',
-    customerCompany: 'Apex Retail Networks',
-    customerPhone: '+91 94401 55678',
-    from: 'Hyderabad (Shamshabad)',
-    to: 'Bangalore (Peenya)',
-    corridor: 'HYD-BLR',
-    goodsType: 'FMCG Packaged Goods',
-    weightKg: 2500,
-    specialInstructions: 'Palletized cartons. Forklift at dock.',
-    basePrice: 9200,
-    platformFee: 276,
-    insuranceFee: 150,
-    totalPrice: 9626,
-    paymentMethod: 'UPI',
-    escrowStatus: 'Held in Escrow',
-    status: 'In Transit',
-    estimatedPickup: 'Tomorrow, 06:30 AM',
-    estimatedDelivery: 'Tomorrow, 04:00 PM',
-    telemetry: {
-      currentLat: 15.8281,
-      currentLng: 78.0373,
-      currentSpeedKmh: 58,
-      currentLocationName: 'Kurnool Bypass Highway (NH44)',
-      nextStopName: 'Anantapur Tollway Hub (142 km remaining)',
-      etaMinutes: 185,
-      lastUpdated: 'Just now (Live GPS 4G)',
-      progressPercent: 54,
-      routeCoordinates: [
-        [17.2403, 78.4294],
-        [16.7663, 78.1408],
-        [15.8281, 78.0373],
-        [14.6819, 77.6006],
-        [13.4325, 77.7275],
-        [12.9716, 77.5946]
-      ],
-      checkpoints: [
-        { name: 'Shamshabad Logistics Hub (Pickup)', lat: 17.2403, lng: 78.4294, time: '06:45 AM', completed: true },
-        { name: 'Jadcherla Tollway', lat: 16.7663, lng: 78.1408, time: '08:20 AM', completed: true },
-        { name: 'Kurnool Tollway Hub', lat: 15.8281, lng: 78.0373, time: '11:15 AM (Live)', completed: true },
-        { name: 'Anantapur Bypass', lat: 14.6819, lng: 77.6006, time: '02:30 PM (Est.)', completed: false },
-        { name: 'Bangalore Peenya Terminal (Drop)', lat: 12.9716, lng: 77.5946, time: '07:15 PM (Est.)', completed: false }
-      ]
-    }
-  }
-];
-
-const INITIAL_EARNINGS: EarningsRecord[] = [
-  {
-    id: 'earn-501',
-    date: '18 Aug 2026',
-    route: 'Warangal → Hyderabad (Backhaul)',
-    corridor: 'HYD-WAR',
-    loadsCount: 2,
-    weightKg: 850,
-    amount: 3450,
-    escrowFeeDeducted: 86,
-    status: 'Settled',
-    payoutReference: 'UPI-RETURN-883912'
-  }
-];
+import { SupabaseService } from '../services/supabaseClient';
+import { authService, AppUser } from '../services/authService';
 
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   {
     id: 'notif-1',
-    title: 'New High-Score Backhaul Match (94%)',
+    title: 'New High-Score Backhaul Match (95%)',
     message: 'Apex Retail posted 400 Kg furniture for Hyderabad → Warangal on your scheduled return route.',
     timestamp: '5m ago',
     type: 'match',
@@ -234,7 +47,8 @@ export interface LogisticsState {
   currentPersona: Persona;
   currentPage: string;
   isDarkMode: boolean;
-  
+  authUser: AppUser | null;
+
   canonicalShipments: CanonicalShipment[];
   trips: Trip[];
   loads: LoadRequest[];
@@ -252,44 +66,39 @@ export interface LogisticsState {
   // Active Modals
   isMatchingEngineOpen: boolean;
   isChatDrawerOpen: boolean;
+  isAuthModalOpen: boolean;
+  authModalRole: 'driver' | 'customer';
+  isRealtimeConnected: boolean;
 
   // Toast
   toastMessage: { text: string; type: 'success' | 'info' | 'warning' } | null;
 }
 
-// Storage helpers
-const STORAGE_KEY = 'returnflow_logistics_v3';
+const UI_PREFS_KEY = 'returnflow_ui_prefs_v4';
 
 export function useLogisticsStore() {
   const [state, setState] = useState<LogisticsState>(() => {
+    let isDarkMode = false;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(UI_PREFS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return {
-          ...parsed,
-          canonicalShipments: parsed.canonicalShipments || INITIAL_CANONICAL_SHIPMENTS,
-          trips: parsed.trips || INITIAL_TRIPS,
-          loads: parsed.loads || INITIAL_LOADS,
-          bookings: parsed.bookings || INITIAL_BOOKINGS,
-          earnings: parsed.earnings || INITIAL_EARNINGS,
-          notifications: parsed.notifications || INITIAL_NOTIFICATIONS,
-          chatMessages: parsed.chatMessages || INITIAL_MESSAGES
-        };
+        isDarkMode = parsed.isDarkMode || false;
       }
     } catch (e) {
-      console.error('Failed to load state from localStorage', e);
+      console.warn('UI preferences not found', e);
     }
 
     return {
       currentPersona: 'guest',
       currentPage: 'home',
-      isDarkMode: false,
+      isDarkMode,
+      authUser: null,
       canonicalShipments: INITIAL_CANONICAL_SHIPMENTS,
-      trips: INITIAL_TRIPS,
-      loads: INITIAL_LOADS,
-      bookings: INITIAL_BOOKINGS,
-      earnings: INITIAL_EARNINGS,
+      trips: [],
+      loads: [],
+      bookings: [],
+      earnings: [],
       notifications: INITIAL_NOTIFICATIONS,
       chatMessages: INITIAL_MESSAGES,
       selectedTripId: 'trip-101',
@@ -298,18 +107,71 @@ export function useLogisticsStore() {
       selectedBookingId: 'book-301',
       isMatchingEngineOpen: false,
       isChatDrawerOpen: false,
+      isAuthModalOpen: false,
+      authModalRole: 'driver',
+      isRealtimeConnected: false,
       toastMessage: null
     };
   });
 
-  // Save changes to localStorage
+  // Sync with Supabase on mount and realtime events
+  const refreshFromSupabase = useCallback(async () => {
+    try {
+      const [tripsData, loadsData, earningsData, bookingsData] = await Promise.all([
+        SupabaseService.getTrips(),
+        SupabaseService.getLoadRequests(),
+        SupabaseService.getEarnings(),
+        SupabaseService.getBookings()
+      ]);
+
+      setState((prev) => ({
+        ...prev,
+        trips: tripsData,
+        loads: loadsData,
+        earnings: earningsData,
+        bookings: bookingsData,
+        selectedTripId: prev.selectedTripId || tripsData[0]?.id || null,
+        selectedLoadId: prev.selectedLoadId || loadsData[0]?.id || null,
+        selectedBookingId: prev.selectedBookingId || bookingsData[0]?.id || null
+      }));
+    } catch (err) {
+      console.error('Failed to sync from Supabase', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Restore authenticated session (Supabase or local demo session)
+    void authService.getSessionUser().then((user) => {
+      if (user) {
+        setState((prev) => ({ ...prev, authUser: user }));
+      }
+    });
+
+    refreshFromSupabase();
+
+    // Subscribe to realtime Supabase changes
+    const unsubscribe = SupabaseService.subscribe(
+      () => {
+        refreshFromSupabase();
+      },
+      (connected) => {
+        setState((prev) => ({ ...prev, isRealtimeConnected: connected }));
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [refreshFromSupabase]);
+
+  // Persist UI preferences (dark mode, etc.)
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(UI_PREFS_KEY, JSON.stringify({ isDarkMode: state.isDarkMode }));
     } catch (e) {
-      console.warn('Could not persist to localStorage', e);
+      console.warn('Could not persist UI prefs', e);
     }
-  }, [state]);
+  }, [state.isDarkMode]);
 
   // Sync dark mode class and attribute
   useEffect(() => {
@@ -326,13 +188,114 @@ export function useLogisticsStore() {
 
   // Actions
   const setPersona = (persona: Persona) => {
+    // Signed-in users get their own role-specific workspace. Requesting the
+    // other portal opens the sign-in sheet pre-targeted at that role, so
+    // driver and retailer never share an identity.
+    if (
+      (persona === 'driver' || persona === 'customer') &&
+      state.authUser &&
+      state.authUser.role !== persona
+    ) {
+      showToast(
+        `Switching portals — sign in with your ${persona === 'driver' ? 'Driver' : 'Retailer'} account, or continue as the demo ${persona}.`,
+        'info'
+      );
+      setState((prev) => ({ ...prev, isAuthModalOpen: true, authModalRole: persona }));
+      return;
+    }
+    // Driver / Retailer portals require an authenticated identity.
+    if ((persona === 'driver' || persona === 'customer') && !state.authUser) {
+      setState((prev) => ({ ...prev, isAuthModalOpen: true, authModalRole: persona === 'driver' ? 'driver' : 'customer' }));
+      return;
+    }
     setState((prev) => {
       let nextPage = prev.currentPage;
       if (persona === 'driver') nextPage = 'driver-dashboard';
       else if (persona === 'customer') nextPage = 'customer-dashboard';
+      else if (persona === 'admin') nextPage = 'admin-dashboard';
       else if (persona === 'guest') nextPage = 'home';
       return { ...prev, currentPersona: persona, currentPage: nextPage };
     });
+  };
+
+  const openAuthModal = (role: 'driver' | 'customer' = 'driver') => {
+    setState((prev) => ({ ...prev, isAuthModalOpen: true, authModalRole: role }));
+  };
+
+  const closeAuthModal = () => {
+    setState((prev) => ({ ...prev, isAuthModalOpen: false }));
+  };
+
+  const registerUser = async (input: { email: string; password: string; name: string; phone?: string; company?: string; role: 'driver' | 'customer' }) => {
+    try {
+      const { user, needsEmailConfirmation } = await authService.signUp(input);
+      if (needsEmailConfirmation) {
+        showToast('Account created! Check your email to confirm, then sign in.', 'info');
+        setState((prev) => ({ ...prev, isAuthModalOpen: false }));
+        return;
+      }
+      setState((prev) => ({
+        ...prev,
+        authUser: user,
+        currentPersona: user.role,
+        currentPage: user.role === 'driver' ? 'driver-dashboard' : 'customer-dashboard',
+        isAuthModalOpen: false,
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: `Welcome to ReturnFlow, ${user.name.split(' ')[0]}!`,
+            message:
+              user.role === 'driver'
+                ? 'Your driver account is live. Post a return trip to start receiving backhaul matches.'
+                : 'Your shipper account is live. Post a consignment and let return trucks come to you.',
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+      showToast(`Welcome aboard, ${user.name.split(' ')[0]}!`, 'success');
+    } catch (err) {
+      throw err instanceof Error ? err : new Error('Registration failed');
+    }
+  };
+
+  const loginUser = async (email: string, password: string) => {
+    try {
+      const user = await authService.signIn(email, password);
+      setState((prev) => ({
+        ...prev,
+        authUser: user,
+        currentPersona: user.role,
+        currentPage: user.role === 'driver' ? 'driver-dashboard' : 'customer-dashboard',
+        isAuthModalOpen: false
+      }));
+      showToast(`Signed in as ${user.name}`, 'success');
+    } catch (err) {
+      throw err instanceof Error ? err : new Error('Sign-in failed');
+    }
+  };
+
+  const logoutUser = async () => {
+    await authService.signOut();
+    setState((prev) => ({ ...prev, authUser: null, currentPersona: 'guest', currentPage: 'home' }));
+    showToast('Signed out successfully.', 'info');
+  };
+
+  const continueAsDemoUser = (role: 'driver' | 'customer') => {
+    const demoUser: AppUser =
+      role === 'driver'
+        ? { id: 'drv-rajesh', email: 'rajesh@returnflow.demo', name: 'Rajesh Kumar', phone: '+91 98490 23145', role: 'driver' }
+        : { id: 'cust-priya', email: 'priya@returnflow.demo', name: 'Priya Sharma', company: 'Apex Retail Networks Pvt Ltd', phone: '+91 94401 55678', role: 'customer' };
+    setState((prev) => ({
+      ...prev,
+      authUser: demoUser,
+      currentPersona: role,
+      currentPage: role === 'driver' ? 'driver-dashboard' : 'customer-dashboard',
+      isAuthModalOpen: false
+    }));
+    showToast(`Continuing as demo ${role} (${demoUser.name}).`, 'info');
   };
 
   const setCurrentPage = (page: string) => {
@@ -344,120 +307,139 @@ export function useLogisticsStore() {
     setState((prev) => ({ ...prev, isDarkMode: !prev.isDarkMode }));
   };
 
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = (text: string, type: 'success' | 'info' | 'warning' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setState((prev) => ({ ...prev, toastMessage: { text, type } }));
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
       setState((prev) => ({ ...prev, toastMessage: null }));
     }, 4000);
   };
 
-  const addTrip = (tripData: Omit<Trip, 'id' | 'driverId' | 'driverName' | 'driverRating' | 'driverAvatarText' | 'driverPhone' | 'bookedCapacityKg' | 'bookedLoads' | 'status' | 'isReturnTrip'>) => {
-    const route = calculateDistanceAndDuration(tripData.from, tripData.to);
-    const pricing = calculateDeterministicPrice({
-      distanceKm: route.distanceKm,
-      weightKg: tripData.totalCapacityKg,
-      vehicleType: tripData.vehicleType,
-      corridorId: route.corridorId,
-      isReturnTrip: true
-    });
-
-    const canonical: CanonicalShipment = createCanonicalShipment({
-      requestType: 'DRIVER_RETURN_TRIP',
-      from: tripData.from,
-      to: tripData.to,
-      departureDate: tripData.departureDate,
-      departureTimeWindow: tripData.departureTimeWindow,
-      vehicleType: tripData.vehicleType,
-      vehiclePlate: tripData.vehiclePlate,
-      totalCapacityKg: tripData.totalCapacityKg,
-      weightKg: tripData.totalCapacityKg,
-      goodsType: tripData.preferredLoadType,
-      requestedPrice: tripData.minPrice || pricing.systemRecommendedPrice,
-      notes: tripData.notes
-    });
-
-    const newTrip: Trip = {
-      ...tripData,
-      id: canonical.id,
-      driverId: 'drv-rajesh',
-      driverName: 'Rajesh Kumar',
-      driverRating: 4.9,
-      driverAvatarText: 'RK',
-      driverPhone: '+91 98490 23145',
-      corridor: route.corridorId,
-      bookedCapacityKg: 0,
-      bookedLoads: [],
-      isReturnTrip: true,
-      status: 'active'
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
+  }, []);
 
-    setState((prev) => ({
-      ...prev,
-      canonicalShipments: [canonical, ...prev.canonicalShipments],
-      trips: [newTrip, ...prev.trips],
-      selectedTripId: newTrip.id,
-      currentPage: 'driver-dashboard',
-      notifications: [
-        {
-          id: `notif-${Date.now()}`,
-          title: 'Return Trip Posted & Synchronized',
-          message: `${newTrip.from} → ${newTrip.to} (${newTrip.totalCapacityKg.toLocaleString()} Kg) is now live across driver & retailer portals.`,
-          timestamp: 'Just now',
-          type: 'booking',
-          read: false
-        },
-        ...prev.notifications
-      ]
-    }));
+  const addTrip = async (tripData: NewTripInput) => {
+    try {
+      const u = state.authUser;
+      const newTrip = await SupabaseService.insertTrip({
+        ...tripData,
+        driverIdentity:
+          u && (u.role === 'driver' || u.id.startsWith('drv'))
+            ? { id: u.id, name: u.name, phone: u.phone, avatarText: u.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() }
+            : undefined
+      });
 
-    showToast('Return trip posted & synchronized across portals!', 'success');
+      const canonical = createCanonicalShipment({
+        requestType: 'DRIVER_RETURN_TRIP',
+        from: tripData.from,
+        to: tripData.to,
+        departureDate: tripData.departureDate,
+        departureTimeWindow: tripData.departureTimeWindow,
+        vehicleType: tripData.vehicleType,
+        vehiclePlate: tripData.vehiclePlate,
+        totalCapacityKg: tripData.totalCapacityKg,
+        weightKg: tripData.totalCapacityKg,
+        goodsType: tripData.preferredLoadType || 'FMCG & General Goods',
+        requestedPrice: newTrip.minPrice,
+        notes: tripData.notes
+      });
+
+      setState((prev) => ({
+        ...prev,
+        canonicalShipments: [canonical, ...prev.canonicalShipments],
+        trips: [newTrip, ...prev.trips.filter((t) => t.id !== newTrip.id)],
+        selectedTripId: newTrip.id,
+        currentPage: 'driver-dashboard',
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: 'Return Trip Active',
+            message: `${newTrip.from} → ${newTrip.to} (${newTrip.totalCapacityKg.toLocaleString()} Kg) is now live and matching loads.`,
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+
+      showToast('Return trip posted successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to insert trip', err);
+      showToast('Failed to post trip.', 'warning');
+    }
   };
 
-  const addLoadRequest = (loadData: Omit<LoadRequest, 'id' | 'customerId' | 'customerName' | 'customerCompany' | 'customerPhone' | 'status' | 'createdAt'>) => {
-    const route = calculateDistanceAndDuration(loadData.from, loadData.to);
-    const weightKg = loadData.weightUnit === 'CBM' ? loadData.weight * 250 : loadData.weight;
-    const pricing = calculateDeterministicPrice({
-      distanceKm: route.distanceKm,
-      weightKg,
-      corridorId: route.corridorId,
-      isReturnTrip: true
-    });
+  const addLoadRequest = async (loadData: NewLoadInput) => {
+    try {
+      const u = state.authUser;
+      const newLoad = await SupabaseService.insertLoadRequest({
+        from: loadData.from,
+        to: loadData.to,
+        corridor: loadData.corridor,
+        date: loadData.date,
+        timeWindow: loadData.timeWindow,
+        weight: loadData.weight,
+        weightUnit: loadData.weightUnit,
+        goodsType: loadData.goodsType,
+        budget: loadData.budget,
+        specialInstructions: loadData.specialInstructions,
+        retailerIdentity:
+          u && (u.role === 'customer' || u.id.startsWith('cust'))
+            ? { id: u.id, name: u.name, company: u.company, phone: u.phone }
+            : undefined
+      });
 
-    const canonical: CanonicalShipment = createCanonicalShipment({
-      requestType: 'RETAILER_LOAD_REQUEST',
-      from: loadData.from,
-      to: loadData.to,
-      departureDate: loadData.date,
-      departureTimeWindow: loadData.timeWindow,
-      weightKg,
-      goodsType: loadData.goodsType,
-      requestedPrice: loadData.budget || pricing.systemRecommendedPrice,
-      notes: loadData.specialInstructions
-    });
+      const weightKg = loadData.weightUnit === 'CBM' ? loadData.weight * 250 : loadData.weight;
+      const canonical = createCanonicalShipment({
+        requestType: 'RETAILER_LOAD_REQUEST',
+        from: loadData.from,
+        to: loadData.to,
+        departureDate: loadData.date,
+        departureTimeWindow: loadData.timeWindow,
+        weightKg,
+        goodsType: loadData.goodsType,
+        requestedPrice: newLoad.budget,
+        notes: loadData.specialInstructions
+      });
 
-    const newLoad: LoadRequest = {
-      ...loadData,
-      id: canonical.id,
-      corridor: route.corridorId,
-      customerId: 'cust-priya',
-      customerName: 'Priya Sharma',
-      customerCompany: 'Apex Retail Networks Pvt Ltd',
-      customerPhone: '+91 94401 55678',
-      status: 'Searching',
-      createdAt: 'Just now'
-    };
+      // Real event: count live backhaul matches for the fresh load
+      const matchCount = getCandidateMatchesForLoad(state.trips, newLoad).length;
 
-    setState((prev) => ({
-      ...prev,
-      canonicalShipments: [canonical, ...prev.canonicalShipments],
-      loads: [newLoad, ...prev.loads],
-      selectedLoadId: newLoad.id,
-      currentPage: 'matches'
-    }));
+      setState((prev) => ({
+        ...prev,
+        canonicalShipments: [canonical, ...prev.canonicalShipments],
+        loads: [newLoad, ...prev.loads.filter((l) => l.id !== newLoad.id)],
+        selectedLoadId: newLoad.id,
+        currentPage: 'matches',
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: matchCount > 0 ? `${matchCount} Backhaul Match${matchCount > 1 ? 'es' : ''} Found` : 'Consignment Posted — Scanning Corridor',
+            message:
+              matchCount > 0
+                ? `${matchCount} verified return trip${matchCount > 1 ? 's' : ''} on ${newLoad.corridor} can carry your ${newLoad.weight} ${newLoad.weightUnit} consignment.`
+                : `${newLoad.from} → ${newLoad.to} is now live. We'll alert you the moment a return truck matches your corridor.`,
+            timestamp: 'Just now',
+            type: 'match',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
 
-    showToast('Load request posted! Real-time matches generated.', 'success');
+      showToast('Consignment load request posted successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to insert load request', err);
+      showToast('Failed to post load request.', 'warning');
+    }
   };
-
 
   const selectMatchForBooking = (match: MatchResult) => {
     setState((prev) => ({
@@ -467,7 +449,7 @@ export function useLogisticsStore() {
     }));
   };
 
-  const confirmBookingAndProceedToPayment = (match: MatchResult, paymentMethod: PaymentMethod) => {
+  const confirmBookingAndProceedToPayment = (match: MatchResult, _paymentMethod: PaymentMethod) => {
     setState((prev) => ({
       ...prev,
       selectedMatch: match,
@@ -475,10 +457,21 @@ export function useLogisticsStore() {
     }));
   };
 
-  const completePaymentAndStartTracking = (match: MatchResult, paymentMethod: PaymentMethod) => {
-    const bookingId = `book-${Date.now()}`;
-    const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
+  const completePaymentAndStartTracking = async (match: MatchResult, paymentMethod: PaymentMethod) => {
+    try {
+      const bookingId = `book-${Date.now()}`;
+      const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
     
+    const route = calculateDistanceAndDuration(match.load.from, match.load.to);
+    const pricing = calculateBackhaulPricing({
+      distanceKm: route.distanceKm,
+      weightKg,
+      vehicleType: match.trip.vehicleType,
+      corridorId: match.trip.corridor,
+      isReturnTrip: true,
+      retailerBudget: match.calculatedPrice
+    });
+
     const newBooking: Booking = {
       id: bookingId,
       tripId: match.trip.id,
@@ -501,10 +494,10 @@ export function useLogisticsStore() {
       goodsType: match.load.goodsType,
       weightKg: weightKg,
       specialInstructions: match.load.specialInstructions,
-      basePrice: match.calculatedPrice,
-      platformFee: Math.round(match.calculatedPrice * 0.03),
+      basePrice: pricing.driverPayout,
+      platformFee: pricing.platformFee,
       insuranceFee: 150,
-      totalPrice: Math.round(match.calculatedPrice * 1.03) + 150,
+      totalPrice: pricing.retailerBudget + 150,
       paymentMethod: paymentMethod,
       escrowStatus: 'Held in Escrow',
       status: 'Booked',
@@ -535,44 +528,6 @@ export function useLogisticsStore() {
       }
     };
 
-    // Update trip capacity & booked loads
-    const updatedTrips = state.trips.map((t) => {
-      if (t.id === match.trip.id) {
-        return {
-          ...t,
-          bookedCapacityKg: t.bookedCapacityKg + weightKg,
-          bookedLoads: [
-            ...t.bookedLoads,
-            {
-              id: `bload-${Date.now()}`,
-              from: match.load.from,
-              to: match.load.to,
-              weightKg: weightKg,
-              price: match.calculatedPrice,
-              shipperName: match.load.customerCompany,
-              goodsType: match.load.goodsType,
-              bookingTime: 'Just now'
-            }
-          ]
-        };
-      }
-      return t;
-    });
-
-    // Update load status
-    const updatedLoads = state.loads.map((l) => {
-      if (l.id === match.load.id) {
-        return {
-          ...l,
-          status: 'Booked' as ShipmentStatus,
-          matchedTripId: match.trip.id,
-          bookingId: bookingId
-        };
-      }
-      return l;
-    });
-
-    // Add new earnings record (in escrow)
     const newEarningsRecord: EarningsRecord = {
       id: `earn-${Date.now()}`,
       date: 'Today',
@@ -580,16 +535,16 @@ export function useLogisticsStore() {
       corridor: match.trip.corridor,
       loadsCount: 1,
       weightKg: weightKg,
-      amount: match.calculatedPrice,
-      escrowFeeDeducted: Math.round(match.calculatedPrice * 0.025),
+      amount: pricing.driverPayout,
+      escrowFeeDeducted: Math.round(pricing.driverPayout * 0.025),
       status: 'In Escrow',
       payoutReference: `ESCROW-${bookingId.toUpperCase()}`
     };
 
+    await SupabaseService.insertBooking(newBooking, newEarningsRecord);
+
     setState((prev) => ({
       ...prev,
-      trips: updatedTrips,
-      loads: updatedLoads,
       bookings: [newBooking, ...prev.bookings],
       earnings: [newEarningsRecord, ...prev.earnings],
       selectedBookingId: bookingId,
@@ -608,81 +563,64 @@ export function useLogisticsStore() {
     }));
 
     showToast('Payment held in secure escrow! Tracking activated.', 'success');
+    } catch (err) {
+      console.error('Failed to complete booking payment', err);
+      showToast('Payment failed. Please try again.', 'warning');
+    }
   };
 
-  const advanceBookingStatus = (bookingId: string) => {
-    setState((prev) => {
-      const updatedBookings = prev.bookings.map((b) => {
-        if (b.id === bookingId) {
-          let nextStatus: ShipmentStatus = b.status;
-          let progress = b.telemetry.progressPercent;
-          let speed = b.telemetry.currentSpeedKmh;
+  const advanceBookingStatus = async (bookingId: string) => {
+    try {
+      const updatedBookings = await SupabaseService.advanceBookingStatus(bookingId);
+      const delivered = updatedBookings.find((b) => b.id === bookingId);
+      const driverPayout = delivered ? Math.round(delivered.basePrice * 0.975) : 0;
 
-          if (b.status === 'Booked') {
-            nextStatus = 'Picked Up';
-            progress = 25;
-            speed = 35;
-          } else if (b.status === 'Picked Up') {
-            nextStatus = 'In Transit';
-            progress = 65;
-            speed = 58;
-          } else if (b.status === 'In Transit') {
-            nextStatus = 'Delivered';
-            progress = 100;
-            speed = 0;
-          }
-
-          const checkpoints = b.telemetry.checkpoints.map((cp, idx) => {
-            if (nextStatus === 'Delivered') return { ...cp, completed: true };
-            if (nextStatus === 'In Transit' && idx <= 2) return { ...cp, completed: true };
-            if (nextStatus === 'Picked Up' && idx <= 1) return { ...cp, completed: true };
-            return cp;
-          });
-
-          return {
-            ...b,
-            status: nextStatus,
-            escrowStatus: nextStatus === 'Delivered' ? 'Settled to Driver' : b.escrowStatus,
-            telemetry: {
-              ...b.telemetry,
-              progressPercent: progress,
-              currentSpeedKmh: speed,
-              checkpoints
-            }
-          };
-        }
-        return b;
-      });
-
-      // Update load status as well
-      const currentBooking = prev.bookings.find((b) => b.id === bookingId);
-      const updatedLoads = prev.loads.map((l) => {
-        if (currentBooking && l.id === currentBooking.loadId) {
-          const matchingBooking = updatedBookings.find((b) => b.id === bookingId);
-          return {
-            ...l,
-            status: matchingBooking ? matchingBooking.status : l.status
-          };
-        }
-        return l;
-      });
-
-      return {
+      setState((prev) => ({
         ...prev,
         bookings: updatedBookings,
-        loads: updatedLoads
-      };
-    });
+        notifications:
+          delivered?.status === 'Delivered'
+            ? [
+                {
+                  id: `notif-${Date.now()}`,
+                  title: 'Delivered — Escrow Settled',
+                  message: `Consignment delivered at ${delivered.to}. ₹${driverPayout.toLocaleString()} released to driver ${delivered.driverName} after the 2.5% escrow fee.`,
+                  timestamp: 'Just now',
+                  type: 'payment',
+                  read: false
+                },
+                ...prev.notifications
+              ]
+            : delivered?.status === 'In Transit'
+              ? [
+                  {
+                    id: `notif-${Date.now()}`,
+                    title: 'Shipment In Transit',
+                    message: `${delivered.driverName} picked up your consignment from ${delivered.from}. Live GPS tracking active on the ${delivered.corridor} corridor.`,
+                    timestamp: 'Just now',
+                    type: 'tracking',
+                    read: false
+                  },
+                  ...prev.notifications
+                ]
+              : prev.notifications
+      }));
+    } catch (err) {
+      console.error('Failed to advance booking status', err);
+      showToast('Could not update shipment status.', 'warning');
+    }
   };
 
   const sendChatMessage = (text: string) => {
     if (!text.trim()) return;
     const isDriver = state.currentPersona === 'driver';
+    const u = state.authUser;
+    const senderName = u?.name || (isDriver ? 'Rajesh Kumar' : 'Priya Sharma');
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       bookingId: state.selectedBookingId || undefined,
-      senderId: isDriver ? 'drv-rajesh' : 'cust-priya',
-      senderName: isDriver ? 'Rajesh Kumar (Driver)' : 'Priya Sharma (Retailer)',
+      senderId: u?.id || (isDriver ? 'drv-rajesh' : 'cust-priya'),
+      senderName: `${senderName} (${isDriver ? 'Driver' : 'Retailer'})`,
       senderRole: isDriver ? 'driver' : 'customer',
       recipientId: isDriver ? 'cust-priya' : 'drv-rajesh',
       text: text.trim(),
@@ -727,36 +665,51 @@ export function useLogisticsStore() {
     const load = state.loads.find((l) => l.id === targetLoadId) || state.loads[0];
     if (!load) return [];
 
-    return state.trips
-      .filter((trip) => trip.status === 'active')
-      .map((trip) => calculateMatchScore(trip, load))
-      .filter((match) => match.matchScore >= 40) // Filter out geographically incompatible matches
-      .sort((a, b) => b.matchScore - a.matchScore);
+    return getCandidateMatchesForLoad(state.trips, load);
   };
 
-  // Reset demo state
-  const resetDemoState = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setState({
-      currentPersona: 'guest',
-      currentPage: 'home',
-      isDarkMode: false,
-      canonicalShipments: INITIAL_CANONICAL_SHIPMENTS,
-      trips: INITIAL_TRIPS,
-      loads: INITIAL_LOADS,
-      bookings: INITIAL_BOOKINGS,
-      earnings: INITIAL_EARNINGS,
-      notifications: INITIAL_NOTIFICATIONS,
-      chatMessages: INITIAL_MESSAGES,
-      selectedTripId: 'trip-101',
-      selectedLoadId: 'load-201',
-      selectedMatch: null,
-      selectedBookingId: 'book-301',
-      isMatchingEngineOpen: false,
-      isChatDrawerOpen: false,
-      toastMessage: { text: 'Platform demo data restored.', type: 'info' }
-    });
+  const cancelTrip = async (tripId: string) => {
+    try {
+      await SupabaseService.deleteTrip(tripId);
+      setState((prev) => ({
+        ...prev,
+        trips: prev.trips.filter((t) => t.id !== tripId),
+        canonicalShipments: prev.canonicalShipments.filter((s) => s.id !== tripId)
+      }));
+      showToast('Trip listing cancelled.', 'info');
+    } catch (err) {
+      console.error('Failed to cancel trip', err);
+      showToast('Could not cancel the trip.', 'warning');
+    }
   };
+
+  const cancelLoad = async (loadId: string) => {
+    try {
+      await SupabaseService.deleteLoadRequest(loadId);
+      setState((prev) => ({
+        ...prev,
+        loads: prev.loads.filter((l) => l.id !== loadId),
+        canonicalShipments: prev.canonicalShipments.filter((s) => s.id !== loadId)
+      }));
+      showToast('Load consignment request cancelled.', 'info');
+    } catch (err) {
+      console.error('Failed to cancel load', err);
+      showToast('Could not cancel the load request.', 'warning');
+    }
+  };
+
+  const resetDemoState = () => {
+    try {
+      SupabaseService.resetToSeed();
+      localStorage.removeItem(UI_PREFS_KEY);
+      refreshFromSupabase();
+      showToast('Platform demo data restored successfully.', 'info');
+    } catch (err) {
+      console.error('Failed to reset demo state', err);
+      showToast('Could not restore demo data.', 'warning');
+    }
+  };
+
 
   return {
     state,
@@ -765,7 +718,9 @@ export function useLogisticsStore() {
     toggleDarkMode,
     showToast,
     addTrip,
+    cancelTrip,
     addLoadRequest,
+    cancelLoad,
     selectMatchForBooking,
     confirmBookingAndProceedToPayment,
     completePaymentAndStartTracking,
@@ -777,6 +732,12 @@ export function useLogisticsStore() {
     setSelectedLoadId,
     setSelectedBookingId,
     getMatchesForLoad,
-    resetDemoState
+    resetDemoState,
+    openAuthModal,
+    closeAuthModal,
+    registerUser,
+    loginUser,
+    logoutUser,
+    continueAsDemoUser
   };
 }

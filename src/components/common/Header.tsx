@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Bell,
   Sun,
@@ -8,10 +8,17 @@ import {
   Home,
   Cpu,
   MessageSquare,
-  ChevronDown,
-  RotateCcw
+  RotateCcw,
+  BarChart3,
+  LogOut,
+  LogIn,
+  Wifi,
+  WifiOff,
+  Check,
+  ChevronDown
 } from 'lucide-react';
 import { Persona, NotificationItem } from '../../types/logistics';
+import { AppUser } from '../../services/authService';
 
 interface HeaderProps {
   currentPersona: Persona;
@@ -19,34 +26,71 @@ interface HeaderProps {
   isDarkMode: boolean;
   notifications: NotificationItem[];
   unreadMessagesCount: number;
+  authUser?: AppUser | null;
+  isRealtimeConnected?: boolean;
   onSelectPersona: (persona: Persona) => void;
   onNavigate: (page: string) => void;
   onToggleDarkMode: () => void;
   onOpenMatchingEngine: () => void;
   onOpenChat: () => void;
   onResetDemo: () => void;
+  onOpenAuth: () => void;
+  onSignOut: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentPersona,
-  currentPage,
+  currentPage: _currentPage,
   isDarkMode,
   notifications,
   unreadMessagesCount,
+  authUser,
+  isRealtimeConnected = false,
   onSelectPersona,
   onNavigate,
   onToggleDarkMode,
   onOpenMatchingEngine,
   onOpenChat,
-  onResetDemo
+  onResetDemo,
+  onOpenAuth,
+  onSignOut
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
   const unreadNotifs = notifications.filter((n) => !n.read).length;
+
+  const displayName = authUser?.name || (currentPersona === 'driver' ? 'Rajesh Kumar' : 'Priya Sharma');
+  const initials = displayName.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  const roleLabel = currentPersona === 'driver' ? 'Driver Partner' : currentPersona === 'admin' ? 'Platform Ops' : authUser?.company || 'Shipper / Retailer';
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setIsNotifOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const personaConfig = [
+    { id: 'guest' as const, label: 'Overview', icon: Home, nav: 'home' },
+    { id: 'driver' as const, label: 'Driver', icon: Truck, nav: 'driver-dashboard', elementId: 'header-switch-driver' },
+    { id: 'customer' as const, label: 'Shipper', icon: Store, nav: 'customer-dashboard', elementId: 'header-switch-customer' },
+    { id: 'admin' as const, label: 'Ops Admin', icon: BarChart3, nav: 'admin-dashboard' }
+  ];
 
   return (
     <header
       style={{
-        height: 'var(--header-height)',
+        height: '64px',
         backgroundColor: 'var(--surface-2)',
         borderBottom: '1px solid var(--border-color)',
         position: 'sticky',
@@ -54,8 +98,8 @@ export const Header: React.FC<HeaderProps> = ({
         zIndex: 100,
         display: 'flex',
         alignItems: 'center',
-        boxShadow: 'var(--shadow-sm)',
-        transition: 'background-color var(--dur-base)'
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        transition: 'background-color var(--dur-base), border-color var(--dur-base)'
       }}
     >
       <div
@@ -64,57 +108,74 @@ export const Header: React.FC<HeaderProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '16px'
+          gap: '16px',
+          width: '100%'
         }}
       >
-        {/* Left: Brand Logo & Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        {/* Left: Brand Identity */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
           <div
             onClick={() => onNavigate('home')}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              userSelect: 'none'
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                borderRadius: '9px',
                 background: 'linear-gradient(135deg, #1D9E75 0%, #042C53 100%)',
                 color: '#FFFFFF',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: '1rem',
-                boxShadow: '0 2px 6px rgba(29, 158, 117, 0.3)'
+                fontWeight: 800,
+                fontSize: '0.9375rem',
+                letterSpacing: '-0.5px',
+                boxShadow: '0 2px 8px rgba(29, 158, 117, 0.25)'
               }}
             >
               RF
             </div>
-            <div>
-              <span
-                style={{
-                  fontSize: '1.25rem',
-                  fontWeight: 700,
-                  color: 'var(--brand-navy)',
-                  letterSpacing: '-0.3px'
-                }}
-              >
-                ReturnFlow
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    fontSize: '1.125rem',
+                    fontWeight: 700,
+                    color: 'var(--brand-navy)',
+                    letterSpacing: '-0.4px',
+                    lineHeight: 1.1
+                  }}
+                >
+                  ReturnFlow
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.625rem',
+                    fontWeight: 700,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    backgroundColor: 'var(--brand-teal-light)',
+                    color: 'var(--brand-teal)',
+                    letterSpacing: '0.4px',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  AI
+                </span>
+              </div>
               <span
                 style={{
                   fontSize: '0.6875rem',
-                  fontWeight: 600,
-                  display: 'block',
-                  color: 'var(--brand-teal)',
-                  letterSpacing: '0.5px',
-                  textTransform: 'uppercase',
-                  marginTop: '-2px'
+                  fontWeight: 500,
+                  color: 'var(--text-secondary)',
+                  letterSpacing: '0.2px'
                 }}
               >
                 Logistics Intelligence
@@ -123,302 +184,480 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: Live Interactive Persona Switcher */}
-        <div
+        {/* Center: Clean Segmented Persona Switcher */}
+        <nav
+          className="persona-switcher"
+          aria-label="Portal Navigation"
           style={{
             display: 'flex',
             alignItems: 'center',
             backgroundColor: 'var(--bg-secondary)',
             padding: '3px',
-            borderRadius: 'var(--radius-pill)',
-            border: '1px solid var(--border-color)'
+            borderRadius: '9999px',
+            border: '1px solid var(--border-color)',
+            gap: '2px'
           }}
-          className="persona-switcher"
         >
-          <button
-            onClick={() => {
-              onSelectPersona('guest');
-              onNavigate('home');
-            }}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 'var(--radius-pill)',
-              backgroundColor: currentPersona === 'guest' ? 'var(--surface-2)' : 'transparent',
-              color: currentPersona === 'guest' ? 'var(--brand-navy)' : 'var(--text-secondary)',
-              fontWeight: currentPersona === 'guest' ? 600 : 500,
-              fontSize: '0.8125rem',
-              boxShadow: currentPersona === 'guest' ? 'var(--shadow-sm)' : 'none'
-            }}
-          >
-            <Home size={14} />
-            <span>Landing Page</span>
-          </button>
-
-          <button
-            onClick={() => {
-              onSelectPersona('driver');
-              onNavigate('driver-dashboard');
-            }}
-            id="header-switch-driver"
-            style={{
-              padding: '6px 14px',
-              borderRadius: 'var(--radius-pill)',
-              backgroundColor: currentPersona === 'driver' ? 'var(--brand-teal)' : 'transparent',
-              color: currentPersona === 'driver' ? '#FFFFFF' : 'var(--text-secondary)',
-              fontWeight: currentPersona === 'driver' ? 600 : 500,
-              fontSize: '0.8125rem',
-              boxShadow: currentPersona === 'driver' ? 'var(--shadow-sm)' : 'none'
-            }}
-          >
-            <Truck size={14} />
-            <span>Driver Portal</span>
-          </button>
-
-          <button
-            onClick={() => {
-              onSelectPersona('customer');
-              onNavigate('customer-dashboard');
-            }}
-            id="header-switch-customer"
-            style={{
-              padding: '6px 14px',
-              borderRadius: 'var(--radius-pill)',
-              backgroundColor: currentPersona === 'customer' ? 'var(--brand-amber)' : 'transparent',
-              color: currentPersona === 'customer' ? '#FFFFFF' : 'var(--text-secondary)',
-              fontWeight: currentPersona === 'customer' ? 600 : 500,
-              fontSize: '0.8125rem',
-              boxShadow: currentPersona === 'customer' ? 'var(--shadow-sm)' : 'none'
-            }}
-          >
-            <Store size={14} />
-            <span>Retailer Portal</span>
-          </button>
-        </div>
-
-        {/* Right Tools: Simulator, Chat, Notifs, Theme, User Avatar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Matching Engine Interactive Explainer Modal Trigger */}
-          <button
-            onClick={onOpenMatchingEngine}
-            className="btn-outline-navy btn-sm"
-            title="Open Interactive Bidirectional Matching Engine Simulator"
-            style={{
-              padding: '6px 12px',
-              fontSize: '0.8125rem',
-              color: 'var(--brand-teal)',
-              borderColor: 'rgba(29, 158, 117, 0.4)',
-              background: 'var(--brand-teal-light)'
-            }}
-          >
-            <Cpu size={15} />
-            <span style={{ fontWeight: 600 }}>AI Match Engine</span>
-          </button>
-
-          {/* In-App Chat Drawer Trigger */}
-          <button
-            onClick={onOpenChat}
-            className="btn-outline-navy btn-sm"
-            style={{ position: 'relative', width: '36px', height: '36px', padding: 0 }}
-            title="Open in-app driver / shipper communications"
-          >
-            <MessageSquare size={17} />
-            {unreadMessagesCount > 0 && (
-              <span
+          {personaConfig.map((item) => {
+            const isActive = currentPersona === item.id;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                id={item.elementId}
+                onClick={() => {
+                  onSelectPersona(item.id);
+                  onNavigate(item.nav);
+                }}
                 style={{
-                  position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
-                  backgroundColor: 'var(--brand-coral)',
-                  color: '#FFFFFF',
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '50%',
-                  fontSize: '0.6875rem',
-                  fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  gap: '6px',
+                  padding: '6px 13px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  backgroundColor: isActive
+                    ? item.id === 'driver'
+                      ? 'var(--brand-teal)'
+                      : item.id === 'customer'
+                      ? 'var(--brand-amber)'
+                      : item.id === 'admin'
+                      ? 'var(--brand-navy)'
+                      : 'var(--surface-2)'
+                    : 'transparent',
+                  color: isActive
+                    ? item.id === 'guest'
+                      ? 'var(--brand-navy)'
+                      : '#FFFFFF'
+                    : 'var(--text-secondary)',
+                  fontWeight: isActive ? 600 : 500,
+                  fontSize: '0.8125rem',
+                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 180ms ease',
+                  whiteSpace: 'nowrap'
                 }}
               >
-                {unreadMessagesCount}
-              </span>
-            )}
-          </button>
+                <Icon size={14} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-          {/* Notification Bell with Dropdown */}
-          <div style={{ position: 'relative' }}>
-            <button
-              onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="btn-outline-navy btn-sm"
-              style={{ position: 'relative', width: '36px', height: '36px', padding: 0 }}
-              title="Notifications"
+        {/* Right: Grouped Actions & Profile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {/* Status & Engine Group */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {/* Live Indicator */}
+            <div
+              title={isRealtimeConnected ? 'Supabase Realtime Sync: Connected' : 'Offline Mode: Local Demo Data'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                backgroundColor: isRealtimeConnected ? 'rgba(22, 163, 74, 0.08)' : 'var(--bg-secondary)',
+                fontSize: '0.6875rem',
+                fontWeight: 600,
+                color: isRealtimeConnected ? '#16A34A' : 'var(--text-tertiary)',
+                border: '1px solid',
+                borderColor: isRealtimeConnected ? 'rgba(22, 163, 74, 0.2)' : 'var(--border-color)',
+                cursor: 'default'
+              }}
             >
-              <Bell size={17} />
-              {unreadNotifs > 0 && (
+              {isRealtimeConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              <span className="sync-label" style={{ letterSpacing: '0.3px' }}>
+                {isRealtimeConnected ? 'Live' : 'Offline'}
+              </span>
+              <span
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: isRealtimeConnected ? '#16A34A' : 'var(--text-tertiary)',
+                  boxShadow: isRealtimeConnected ? '0 0 0 2px rgba(22,163,74,0.2)' : 'none'
+                }}
+              />
+            </div>
+
+            {/* AI Match Engine Modal Button */}
+            <button
+              onClick={onOpenMatchingEngine}
+              title="Open Bidirectional Matching Engine Explainer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                backgroundColor: 'var(--brand-teal-light)',
+                border: '1px solid rgba(29, 158, 117, 0.3)',
+                color: 'var(--brand-teal)',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 150ms ease'
+              }}
+            >
+              <Cpu size={14} />
+              <span>AI Matcher</span>
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '22px', backgroundColor: 'var(--border-color)', margin: '0 2px' }} />
+
+          {/* Utility Icon Group */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {/* Chat Drawer */}
+            <button
+              onClick={onOpenChat}
+              title="Messages & Chat"
+              style={{
+                position: 'relative',
+                width: '32px',
+                height: '32px',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--surface-2)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              <MessageSquare size={15} />
+              {unreadMessagesCount > 0 && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: '-4px',
-                    right: '-4px',
-                    minWidth: '18px',
-                    height: '18px',
-                    padding: '0 4px',
+                    top: '-3px',
+                    right: '-3px',
                     backgroundColor: 'var(--brand-coral)',
                     color: '#FFFFFF',
-                    borderRadius: '999px',
-                    fontSize: '0.6875rem',
+                    width: '15px',
+                    height: '15px',
+                    borderRadius: '50%',
+                    fontSize: '0.625rem',
                     fontWeight: 700,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    boxShadow: '0 2px 6px rgba(239,68,68,0.5)'
+                    boxShadow: '0 1px 3px rgba(216,90,48,0.4)'
                   }}
                 >
-                  {unreadNotifs}
+                  {unreadMessagesCount}
                 </span>
               )}
             </button>
 
-            {isNotifOpen && (
-              <div
-                className="animate-fade-in"
+            {/* Notifications Dropdown */}
+            <div ref={notifRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                title="Notifications"
                 style={{
-                  position: 'absolute',
-                  top: '44px',
-                  right: 0,
-                  width: '340px',
-                  backgroundColor: 'var(--surface-2)',
-                  borderRadius: 'var(--radius-card)',
-                  boxShadow: 'var(--shadow-lg)',
-                  border: '1px solid var(--border-color)',
-                  padding: '16px',
-                  zIndex: 200
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <h4 style={{ fontSize: '0.9375rem', color: 'var(--brand-navy)', margin: 0, fontWeight: 700 }}>
-                      Live Notifications
-                    </h4>
-                    {unreadNotifs > 0 && (
-                      <span style={{ backgroundColor: 'var(--brand-coral)', color: '#fff', fontSize: '0.6875rem', fontWeight: 700, padding: '1px 6px', borderRadius: '10px' }}>
-                        {unreadNotifs} new
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      notifications.forEach(n => { n.read = true; });
-                      setIsNotifOpen(false);
-                    }}
-                    style={{ background: 'none', border: 'none', color: 'var(--brand-teal)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Mark all read
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
-                  {notifications.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>
-                      No notifications yet
-                    </div>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        onClick={() => {
-                          n.read = true;
-                          if (n.type === 'match') onNavigate('matches');
-                          if (n.type === 'payment') onNavigate('driver-earnings');
-                          if (n.type === 'tracking') onNavigate('tracking');
-                          if (n.type === 'booking') onNavigate('driver-dashboard');
-                          setIsNotifOpen(false);
-                        }}
-                        style={{
-                          padding: '10px 12px',
-                          backgroundColor: n.read ? 'var(--surface-3)' : 'var(--brand-teal-light)',
-                          borderRadius: '8px',
-                          fontSize: '0.8125rem',
-                          border: n.read ? '1px solid var(--border-color)' : '1px solid rgba(29,158,117,0.4)',
-                          cursor: 'pointer',
-                          transition: 'background-color 150ms ease'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--brand-navy)' }}>
-                            {n.title}
-                          </div>
-                          {!n.read && (
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--brand-teal)' }} />
-                          )}
-                        </div>
-                        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.35, fontSize: '0.75rem' }}>{n.message}</div>
-                        <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                          {n.timestamp}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Dark / Light Mode Toggle */}
-          <button
-            onClick={onToggleDarkMode}
-            className="btn-outline-navy btn-sm"
-            style={{ width: '36px', height: '36px', padding: 0 }}
-            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {isDarkMode ? <Sun size={17} /> : <Moon size={17} />}
-          </button>
-
-          {/* Reset Demo State Button */}
-          <button
-            onClick={onResetDemo}
-            className="btn-outline-navy btn-sm"
-            style={{ width: '36px', height: '36px', padding: 0 }}
-            title="Reset platform demo dataset"
-          >
-            <RotateCcw size={15} />
-          </button>
-
-          {/* User Profile Avatar */}
-          {currentPersona !== 'guest' && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                paddingLeft: '6px',
-                borderLeft: '1px solid var(--border-color)'
-              }}
-            >
-              <div
-                style={{
-                  width: '34px',
-                  height: '34px',
-                  borderRadius: '50%',
-                  backgroundColor: currentPersona === 'driver' ? 'var(--brand-teal)' : 'var(--brand-amber)',
-                  color: '#FFFFFF',
+                  position: 'relative',
+                  width: '32px',
+                  height: '32px',
+                  padding: 0,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.8125rem'
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: isNotifOpen ? 'var(--bg-secondary)' : 'var(--surface-2)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer'
                 }}
               >
-                {currentPersona === 'driver' ? 'RK' : 'PS'}
-              </div>
-              <div style={{ display: 'none', lineHeight: 1.2 }} className="desktop-user-label">
-                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--brand-navy)' }}>
-                  {currentPersona === 'driver' ? 'Rajesh Kumar' : 'Priya Sharma'}
+                <Bell size={15} />
+                {unreadNotifs > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-3px',
+                      right: '-3px',
+                      minWidth: '15px',
+                      height: '15px',
+                      padding: '0 3px',
+                      backgroundColor: 'var(--brand-coral)',
+                      color: '#FFFFFF',
+                      borderRadius: '999px',
+                      fontSize: '0.625rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 1px 3px rgba(216,90,48,0.4)'
+                    }}
+                  >
+                    {unreadNotifs}
+                  </span>
+                )}
+              </button>
+
+              {isNotifOpen && (
+                <div
+                  className="animate-fade-in"
+                  style={{
+                    position: 'absolute',
+                    top: '40px',
+                    right: 0,
+                    width: '330px',
+                    backgroundColor: 'var(--surface-2)',
+                    borderRadius: '10px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid var(--border-color)',
+                    padding: '14px',
+                    zIndex: 200
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '0.875rem', color: 'var(--brand-navy)', fontWeight: 700 }}>
+                        Notifications
+                      </span>
+                      {unreadNotifs > 0 && (
+                        <span style={{ backgroundColor: 'var(--brand-coral)', color: '#fff', fontSize: '0.625rem', fontWeight: 700, padding: '1px 5px', borderRadius: '8px' }}>
+                          {unreadNotifs} new
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        notifications.forEach(n => { n.read = true; });
+                        setIsNotifOpen(false);
+                      }}
+                      style={{ background: 'none', border: 'none', color: 'var(--brand-teal)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <Check size={12} />
+                      Mark read
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
+                    {notifications.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                        No notifications
+                      </div>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            n.read = true;
+                            if (n.type === 'match') onNavigate('matches');
+                            if (n.type === 'payment') onNavigate('driver-earnings');
+                            if (n.type === 'tracking') onNavigate('tracking');
+                            if (n.type === 'booking') onNavigate('driver-dashboard');
+                            setIsNotifOpen(false);
+                          }}
+                          style={{
+                            padding: '8px 10px',
+                            backgroundColor: n.read ? 'var(--surface-3)' : 'var(--brand-teal-light)',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            border: n.read ? '1px solid var(--border-color)' : '1px solid rgba(29,158,117,0.3)',
+                            cursor: 'pointer',
+                            transition: 'background-color 150ms ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--brand-navy)' }}>
+                              {n.title}
+                            </span>
+                            {!n.read && (
+                              <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: 'var(--brand-teal)' }} />
+                            )}
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', lineHeight: 1.3, fontSize: '0.7rem' }}>{n.message}</div>
+                          <div style={{ fontSize: '0.625rem', color: 'var(--text-tertiary)', marginTop: '3px', fontFamily: 'var(--font-mono)' }}>
+                            {n.timestamp}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
-                  {currentPersona === 'driver' ? 'Fleet Owner' : 'Retailer'}
+              )}
+            </div>
+
+            {/* Dark Mode Toggle */}
+            <button
+              onClick={onToggleDarkMode}
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              style={{
+                width: '32px',
+                height: '32px',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--surface-2)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
+            </button>
+
+            {/* Demo Reset */}
+            <button
+              onClick={onResetDemo}
+              title="Reset Demo Dataset"
+              style={{
+                width: '32px',
+                height: '32px',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--surface-2)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '22px', backgroundColor: 'var(--border-color)', margin: '0 2px' }} />
+
+          {/* User Profile / Auth Area */}
+          {currentPersona === 'guest' ? (
+            <button
+              onClick={onOpenAuth}
+              title="Sign in or register"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                borderRadius: '9999px',
+                background: 'linear-gradient(135deg, #1D9E75 0%, #042C53 100%)',
+                color: '#FFFFFF',
+                border: 'none',
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(4, 44, 83, 0.2)',
+                transition: 'opacity 150ms ease'
+              }}
+            >
+              <LogIn size={13} />
+              <span>Sign In</span>
+            </button>
+          ) : (
+            <div ref={userMenuRef} style={{ position: 'relative' }}>
+              <div
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '3px 8px 3px 4px',
+                  borderRadius: '9999px',
+                  backgroundColor: isUserMenuOpen ? 'var(--bg-secondary)' : 'transparent',
+                  border: '1px solid',
+                  borderColor: isUserMenuOpen ? 'var(--border-color)' : 'transparent',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  transition: 'all 150ms ease'
+                }}
+              >
+                <div
+                  style={{
+                    width: '30px',
+                    height: '30px',
+                    borderRadius: '50%',
+                    backgroundColor:
+                      currentPersona === 'driver'
+                        ? 'var(--brand-teal)'
+                        : currentPersona === 'admin'
+                        ? 'var(--brand-navy)'
+                        : 'var(--brand-amber)',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    flexShrink: 0
+                  }}
+                >
+                  {initials}
                 </div>
+                <div style={{ lineHeight: 1.15 }} className="desktop-user-label">
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--brand-navy)' }}>
+                    {displayName}
+                  </div>
+                  <div style={{ fontSize: '0.625rem', color: 'var(--text-secondary)' }}>
+                    {roleLabel}
+                  </div>
+                </div>
+                <ChevronDown size={13} color="var(--text-secondary)" />
               </div>
+
+              {/* Profile Dropdown Menu */}
+              {isUserMenuOpen && (
+                <div
+                  className="animate-fade-in"
+                  style={{
+                    position: 'absolute',
+                    top: '40px',
+                    right: 0,
+                    width: '190px',
+                    backgroundColor: 'var(--surface-2)',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid var(--border-color)',
+                    padding: '6px',
+                    zIndex: 200
+                  }}
+                >
+                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-color)', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--brand-navy)' }}>{displayName}</div>
+                    <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>{authUser?.email || 'demo@returnflow.ai'}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      onSignOut();
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '7px 8px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      color: 'var(--brand-coral)',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background-color 150ms ease'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--brand-coral-light)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <LogOut size={14} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

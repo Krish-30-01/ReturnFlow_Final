@@ -37,10 +37,10 @@ const MetricCard: React.FC<{
       {icon}
     </div>
     <div
-      className="stat-number"
+      className={`stat-number gradient-stat-${accent}`}
       style={{
         fontSize: '2.25rem',
-        color: iconColor,
+        fontWeight: 800
       }}
     >
       {value}

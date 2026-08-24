@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Truck, Calendar, MapPin, IndianRupee, ArrowRight, ShieldCheck, Navigation } from 'lucide-react';
-import { Trip } from '../../types/logistics';
+import { Truck, MapPin, IndianRupee, ArrowRight } from 'lucide-react';
+import { validateLocationStringAsync } from '../../services/geocodingService';
+import { generateCorridorCode } from '../../services/routingEngine';
+import { NewTripInput } from '../../types/logistics';
 
 interface PostReturnTripProps {
-  onSubmitTrip: (tripData: any) => void;
+  onSubmitTrip: (tripData: NewTripInput) => void;
   onCancel: () => void;
 }
 
@@ -23,6 +25,7 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [, setIsValidating] = useState(false);
 
   const handleCapacityStep = (delta: number) => {
     setFormData((prev) => ({
@@ -31,12 +34,25 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
-    if (!formData.from.trim()) newErrors.from = 'Origin location is required.';
-    if (!formData.to.trim()) newErrors.to = 'Destination location is required.';
+    setIsValidating(true);
+    const [fromVal, toVal] = await Promise.all([
+      validateLocationStringAsync(formData.from),
+      validateLocationStringAsync(formData.to)
+    ]);
+    setIsValidating(false);
+
+    if (!fromVal.isValid || !fromVal.location) {
+      newErrors.from = fromVal.error || 'Location not recognized, please select a valid city.';
+    }
+
+    if (!toVal.isValid || !toVal.location) {
+      newErrors.to = toVal.error || 'Location not recognized, please select a valid city.';
+    }
+
     if (!formData.departureDate) newErrors.departureDate = 'Departure date is required.';
     if (formData.totalCapacityKg <= 0) newErrors.totalCapacityKg = 'Capacity must be greater than 0.';
     if (formData.minPrice <= 0) newErrors.minPrice = 'Minimum price must be greater than 0.';
@@ -47,13 +63,23 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
     }
 
     setErrors({});
-    onSubmitTrip(formData);
+
+    const originCoords = { lat: fromVal.location!.lat, lng: fromVal.location!.lng };
+    const destinationCoords = { lat: toVal.location!.lat, lng: toVal.location!.lng };
+    const corridor = generateCorridorCode(formData.from, formData.to);
+
+    onSubmitTrip({
+      ...formData,
+      corridor,
+      originCoords,
+      destinationCoords
+    });
   };
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '16px 0 48px' }} className="animate-fade-in">
       <div
-        className="card"
+        className="card card-teal"
         style={{
           padding: '36px',
           borderRadius: 'var(--radius-lg)',

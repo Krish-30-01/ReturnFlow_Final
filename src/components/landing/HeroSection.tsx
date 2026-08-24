@@ -1,6 +1,6 @@
 import React from 'react';
 import { Truck, Store, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
-import { ReactBitsNetworkBackground } from './ReactBitsNetworkBackground';
+import { HighwayCorridorTelemetryMap } from './HighwayCorridorTelemetryMap';
 
 interface HeroSectionProps {
   onSelectPersona: (persona: 'driver' | 'customer') => void;
@@ -62,12 +62,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
               style={{
                 color: 'var(--text-navy)',
                 marginBottom: '16px',
-                lineHeight: 1.15,
-                fontSize: '2.5rem',
+                lineHeight: 1.12,
+                fontSize: 'clamp(2.25rem, 5vw, 3.25rem)',
                 fontWeight: 800
               }}
             >
-              Monetize Every Return Mile with Dynamic Load Matching
+              Monetize Every Return Mile with <span className="gradient-headline-teal">Dynamic Load Matching</span>
             </h1>
 
             {/* Subheadline */}
@@ -150,21 +150,18 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
             </div>
           </div>
 
-          {/* Right Column — ReactBits Network Animation */}
+          {/* Right Column — Highway Corridor Telemetry Visual */}
           <div
             style={{
-              background: '#FFFFFF',
               borderRadius: '16px',
-              border: '1px solid #E2E8F0',
-              padding: '12px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
               position: 'relative'
             }}
           >
-            <ReactBitsNetworkBackground />
+            <HighwayCorridorTelemetryMap />
           </div>
         </div>
       </div>
     </section>
   );
 };
+

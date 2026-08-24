@@ -1,5 +1,7 @@
 import { CanonicalShipment, MatchBreakdown } from '../types/logistics';
 import { calculateDeterministicPrice, PricingBreakdown } from './pricingEngine';
+import { calculateGeometricOverlap, getCoordinates } from '../utils/matchingAlgorithm';
+import { estimateRoadDistanceKm } from './routingEngine';
 
 export interface EvaluatedMatch {
   id: string;
@@ -15,34 +17,23 @@ export function calculateMatchScore(
   driverShipment: CanonicalShipment,
   retailerShipment: CanonicalShipment
 ): EvaluatedMatch {
-  const normDriverFrom = driverShipment.from.toLowerCase();
-  const normDriverTo = driverShipment.to.toLowerCase();
-  const normRetailerFrom = retailerShipment.from.toLowerCase();
-  const normRetailerTo = retailerShipment.to.toLowerCase();
+  // Pure coordinate-based geometry for origin & destination
+  const driverCoords = getCoordinates(driverShipment);
+  const retailerCoords = getCoordinates(retailerShipment);
 
-  // 1. Route & Corridor Compatibility (0 - 35 points)
-  let routeScore = 5;
-  const corridorsMatch = driverShipment.corridor === retailerShipment.corridor;
+  // 1. Geometric Route & Corridor Compatibility (0 - 35 points)
+  const geom = calculateGeometricOverlap(
+    driverCoords.origin,
+    driverCoords.destination,
+    retailerCoords.origin,
+    retailerCoords.destination
+  );
 
-  if (corridorsMatch) {
-    if (
-      (normDriverFrom.includes(normRetailerFrom) || normRetailerFrom.includes(normDriverFrom)) &&
-      (normDriverTo.includes(normRetailerTo) || normRetailerTo.includes(normDriverTo))
-    ) {
-      routeScore = 35; // Direct city-level match
-    } else {
-      routeScore = 28; // Corridor match with minor detour
-    }
-  } else if (
-    (driverShipment.corridor === 'DEL-BLR' && retailerShipment.corridor === 'HYD-BLR') ||
-    (driverShipment.corridor === 'HYD-BLR' && retailerShipment.corridor === 'DEL-BLR')
-  ) {
-    routeScore = 22; // Overlapping corridor segment
-  }
+  const routeScore = Math.round(geom.overlapRatio * 35);
 
   // 2. Capacity & Weight Efficiency (0 - 25 points)
   let capacityScore = 10;
-  const availableCap = driverShipment.availableCapacityKg || driverShipment.totalCapacityKg || 10000;
+  const availableCap = Math.max(1, driverShipment.availableCapacityKg || driverShipment.totalCapacityKg || 10000);
   const cargoWeight = retailerShipment.weightKg || 500;
 
   if (availableCap >= cargoWeight) {
@@ -60,10 +51,17 @@ export function calculateMatchScore(
 
   // 3. Time Schedule Window Alignment (0 - 20 points)
   let timeWindowScore = 14;
-  if (driverShipment.departureDate === retailerShipment.departureDate) {
-    timeWindowScore = 20;
-  } else {
-    timeWindowScore = 12;
+  if (driverShipment.departureDate && retailerShipment.departureDate) {
+    const tripTime = new Date(driverShipment.departureDate).getTime();
+    const loadTime = new Date(retailerShipment.departureDate).getTime();
+    const diffDays = Math.round(Math.abs(tripTime - loadTime) / 86400000);
+    if (diffDays === 0) {
+      timeWindowScore = 20;
+    } else if (diffDays === 1) {
+      timeWindowScore = 15;
+    } else {
+      timeWindowScore = Math.max(5, 12 - diffDays * 2);
+    }
   }
 
   // 4. Price & Budget Compatibility (0 - 10 points)
@@ -80,10 +78,14 @@ export function calculateMatchScore(
   // 5. Fuel & CO2 Savings Score (0 - 10 points)
   const co2SavingsScore = 9;
 
-  const totalScore = Math.min(99, Math.max(15, routeScore + capacityScore + timeWindowScore + priceScore + co2SavingsScore));
+  // Zero out if route overlap is zero to prevent false matches
+  const totalScore = geom.overlapRatio === 0
+    ? 0
+    : Math.min(99, Math.max(15, routeScore + capacityScore + timeWindowScore + priceScore + co2SavingsScore));
 
+  const distanceKm = driverShipment.routeDistanceKm || estimateRoadDistanceKm(retailerCoords.origin, retailerCoords.destination);
   const pricing = calculateDeterministicPrice({
-    distanceKm: driverShipment.routeDistanceKm || 500,
+    distanceKm,
     weightKg: cargoWeight,
     vehicleType: driverShipment.vehicleType,
     corridorId: driverShipment.corridor,
@@ -91,12 +93,14 @@ export function calculateMatchScore(
   });
 
   let explanation = '';
-  if (totalScore >= 90) {
-    explanation = `Optimal backhaul match! Same day schedule, exact route corridor (${driverShipment.corridor}), and high capacity efficiency (${cargoWeight.toLocaleString()} Kg). Saves ₹${(pricing.marketPrice - pricing.systemRecommendedPrice).toLocaleString()} vs standard one-way freight.`;
+  if (geom.overlapRatio === 0) {
+    explanation = `Route mismatch: Transit path (${driverShipment.from} → ${driverShipment.to}) does not align with load route (${retailerShipment.from} → ${retailerShipment.to}).`;
+  } else if (totalScore >= 90) {
+    explanation = `Optimal backhaul match! Direct coordinate alignment (${geom.description}), same-day schedule, and high capacity efficiency (${cargoWeight.toLocaleString()} Kg). Saves ₹${(pricing.marketPrice - pricing.systemRecommendedPrice).toLocaleString()} vs standard one-way freight.`;
   } else if (totalScore >= 75) {
-    explanation = `Strong partial load compatibility on ${driverShipment.corridor} corridor. Pickup location aligns with driver's primary transit route with minimal detour.`;
+    explanation = `Strong partial load compatibility (${geom.description}). Pickup location aligns with driver's primary transit route with minimal detour.`;
   } else {
-    explanation = `Moderate corridor alignment on ${driverShipment.corridor}. Truck has ${availableCap.toLocaleString()} Kg spare capacity for return leg.`;
+    explanation = `Moderate corridor alignment (${geom.description}). Truck has ${availableCap.toLocaleString()} Kg spare capacity for return leg.`;
   }
 
   return {
@@ -115,3 +119,4 @@ export function calculateMatchScore(
     explanation
   };
 }
+

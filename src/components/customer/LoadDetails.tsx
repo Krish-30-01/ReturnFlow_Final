@@ -1,7 +1,7 @@
 import React from 'react';
-import { ArrowLeft, Edit3, Package, Calendar, MapPin, CheckCircle2, ShieldCheck, IndianRupee, Truck, Star } from 'lucide-react';
+import { ArrowLeft, Edit3, Star } from 'lucide-react';
 import { LoadRequest, Trip } from '../../types/logistics';
-import { formatCurrency, formatWeight } from '../../utils/formatting';
+import { formatCurrency } from '../../utils/formatting';
 
 interface LoadDetailsProps {
   load: LoadRequest;
@@ -42,7 +42,7 @@ export const LoadDetails: React.FC<LoadDetailsProps> = ({
 
       {/* Main Card */}
       <div
-        className="card"
+        className="card card-amber"
         style={{
           padding: '32px',
           borderRadius: 'var(--radius-lg)',
@@ -76,19 +76,19 @@ export const LoadDetails: React.FC<LoadDetailsProps> = ({
           <div>
             {load.status === 'Searching' && (
               <span className="status-pill status-searching" style={{ fontSize: '0.8125rem' }}>
-                <span className="pulsing-dot" />
+                <span className="status-dot-pulse" />
                 <span>Searching</span>
               </span>
             )}
             {(load.status === 'Booked' || load.status === 'In Transit') && (
               <span className="status-pill status-in-transit" style={{ fontSize: '0.8125rem' }}>
-                <CheckCircle2 size={13} />
+                <span className="status-dot-pulse" />
                 <span>{load.status}</span>
               </span>
             )}
             {load.status === 'Delivered' && (
               <span className="status-pill status-delivered" style={{ fontSize: '0.8125rem' }}>
-                <CheckCircle2 size={13} />
+                <span className="status-dot-static" style={{ color: 'var(--brand-teal)' }} />
                 <span>Delivered</span>
               </span>
             )}
@@ -156,18 +156,20 @@ export const LoadDetails: React.FC<LoadDetailsProps> = ({
                   fontWeight: 700
                 }}
               >
-                RK
+                {matchedTrip?.driverAvatarText || 'RK'}
               </div>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--brand-navy)', fontSize: '1rem' }}>Rajesh Kumar</span>
+                  <span style={{ fontWeight: 700, color: 'var(--brand-navy)', fontSize: '1rem' }}>
+                    {matchedTrip?.driverName || 'Rajesh Kumar'}
+                  </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: '#BA7517', fontSize: '0.8125rem' }}>
                     <Star size={14} fill="#BA7517" />
-                    <span>4.9</span>
+                    <span>{matchedTrip?.driverRating || 4.9}</span>
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                  Vehicle: <strong>TATA Signa 3523 (TS-07-EA-9912)</strong> · Verified Fleet
+                  Vehicle: <strong>{matchedTrip?.vehicleType || 'TATA Signa 3523'} ({matchedTrip?.vehiclePlate || 'TS-07-EA-9912'})</strong> · Verified Fleet
                 </div>
               </div>
             </div>
@@ -183,7 +185,7 @@ export const LoadDetails: React.FC<LoadDetailsProps> = ({
               onClick={() => onBrowseMatches(load.id)}
               style={{ padding: '12px 28px', height: '48px', fontSize: '1rem' }}
             >
-              <span>View Backhaul Matches (3 Available)</span>
+              <span>Find &amp; Browse Backhaul Matches</span>
             </button>
           </div>
         )}

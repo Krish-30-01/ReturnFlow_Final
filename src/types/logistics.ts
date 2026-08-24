@@ -1,4 +1,4 @@
-export type Persona = 'guest' | 'driver' | 'customer';
+export type Persona = 'guest' | 'driver' | 'customer' | 'admin';
 
 export type UserRole = 'driver' | 'customer';
 
@@ -104,6 +104,8 @@ export interface Trip {
   vehiclePlate: string;
   from: string;
   to: string;
+  originCoords?: { lat: number; lng: number };
+  destinationCoords?: { lat: number; lng: number };
   corridor: string;
   departureDate: string;
   departureTimeWindow: string;
@@ -125,6 +127,8 @@ export interface LoadRequest {
   customerPhone: string;
   from: string;
   to: string;
+  originCoords?: { lat: number; lng: number };
+  destinationCoords?: { lat: number; lng: number };
   corridor: string;
   date: string;
   timeWindow: string;
@@ -154,6 +158,16 @@ export interface MatchResult {
   co2SavedKg: number;
   explanation: string;
 }
+
+export type NewTripInput = Omit<
+  Trip,
+  'id' | 'driverId' | 'driverName' | 'driverRating' | 'driverAvatarText' | 'driverPhone' | 'bookedCapacityKg' | 'bookedLoads' | 'status' | 'isReturnTrip'
+>;
+
+export type NewLoadInput = Omit<
+  LoadRequest,
+  'id' | 'customerId' | 'customerName' | 'customerCompany' | 'customerPhone' | 'status' | 'createdAt'
+>;
 
 export interface Checkpoint {
   name: string;

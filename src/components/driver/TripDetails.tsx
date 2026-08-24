@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Edit3, Truck, Calendar, MapPin, Package, IndianRupee, Layers, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Edit3, Package } from 'lucide-react';
 import { Trip } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
 
@@ -9,7 +9,7 @@ interface TripDetailsProps {
   onNavigateToTracking?: () => void;
 }
 
-export const TripDetails: React.FC<TripDetailsProps> = ({ trip, onBack, onNavigateToTracking }) => {
+export const TripDetails: React.FC<TripDetailsProps> = ({ trip, onBack, onNavigateToTracking: _onNavigateToTracking }) => {
   const percentBooked = Math.min(100, Math.round((trip.bookedCapacityKg / trip.totalCapacityKg) * 100));
   const availableKg = trip.totalCapacityKg - trip.bookedCapacityKg;
 
@@ -34,7 +34,7 @@ export const TripDetails: React.FC<TripDetailsProps> = ({ trip, onBack, onNaviga
 
       {/* Main Single Card with 2-Column Body */}
       <div
-        className="card"
+        className="card card-teal"
         style={{
           padding: '32px',
           borderRadius: 'var(--radius-lg)',
@@ -66,7 +66,8 @@ export const TripDetails: React.FC<TripDetailsProps> = ({ trip, onBack, onNaviga
           </div>
 
           <span className="status-pill status-in-transit" style={{ fontSize: '0.8125rem' }}>
-            {trip.bookedLoads.length > 0 ? 'Active Backhaul Booking' : 'Searching for Shippers'}
+            <span className="status-dot-pulse" />
+            <span>{trip.bookedLoads.length > 0 ? 'Active Backhaul Booking' : 'Searching for Shippers'}</span>
           </span>
         </div>
 

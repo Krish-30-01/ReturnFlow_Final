@@ -1,9 +1,9 @@
 import { CanonicalShipment } from '../types/logistics';
 import { calculateDistanceAndDuration } from './routingEngine';
-import { calculateDeterministicPrice } from './pricingEngine';
+import { calculateBackhaulPricing } from './pricingEngine';
 
 export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
-  // Driver Return Trip 1
+  // Driver Return Trip 1: Hyderabad -> Warangal (148 km, 4-Ton LCV)
   {
     id: 'shipment-101',
     requestType: 'DRIVER_RETURN_TRIP',
@@ -22,12 +22,12 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     departureDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     departureTimeWindow: '06:00 AM – 10:00 AM',
     totalCapacityKg: 4000,
-    availableCapacityKg: 3650,
-    weightKg: 350,
+    availableCapacityKg: 3600,
+    weightKg: 400,
     goodsType: 'FMCG & General Goods',
-    requestedPrice: 2200,
-    systemRecommendedPrice: 2150,
-    platformFee: 65,
+    requestedPrice: 1500, // Reconciled Driver Payout
+    systemRecommendedPrice: 1500,
+    platformFee: 130,
     insuranceFee: 150,
     escrowStatus: 'Unfunded',
     isReturnTrip: true,
@@ -35,7 +35,7 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     createdAt: 'Today, 08:30 AM',
     updatedAt: 'Today, 08:30 AM'
   },
-  // Driver Return Trip 2
+  // Driver Return Trip 2: Hyderabad -> Bangalore (569 km, 30-Ton Multi-Axle)
   {
     id: 'shipment-102',
     requestType: 'DRIVER_RETURN_TRIP',
@@ -54,12 +54,12 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     departureDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
     departureTimeWindow: '04:00 AM – 08:00 AM',
     totalCapacityKg: 15000,
-    availableCapacityKg: 6500,
-    weightKg: 8500,
+    availableCapacityKg: 12500,
+    weightKg: 2500,
     goodsType: 'Industrial & Electronics',
-    requestedPrice: 18500,
-    systemRecommendedPrice: 18200,
-    platformFee: 546,
+    requestedPrice: 9200, // Reconciled Driver Payout
+    systemRecommendedPrice: 9200,
+    platformFee: 800,
     insuranceFee: 150,
     escrowStatus: 'Unfunded',
     isReturnTrip: true,
@@ -67,7 +67,7 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     createdAt: 'Yesterday',
     updatedAt: 'Yesterday'
   },
-  // Retailer Load Request 1
+  // Retailer Load Request 1: Hyderabad -> Warangal (400 kg)
   {
     id: 'shipment-201',
     requestType: 'RETAILER_LOAD_REQUEST',
@@ -87,9 +87,9 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     weightKg: 400,
     goodsType: 'Furniture & Display Fixtures',
     specialInstructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
-    requestedPrice: 2500,
-    systemRecommendedPrice: 2150,
-    platformFee: 65,
+    requestedPrice: 1630, // Reconciled Retailer Budget = 1500 / (1 - 0.08) = 1630
+    systemRecommendedPrice: 1630,
+    platformFee: 130,
     insuranceFee: 150,
     escrowStatus: 'Unfunded',
     isReturnTrip: false,
@@ -97,7 +97,7 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     createdAt: '10 minutes ago',
     updatedAt: '10 minutes ago'
   },
-  // Retailer Load Request 2
+  // Retailer Load Request 2: Hyderabad -> Bangalore (2500 kg)
   {
     id: 'shipment-202',
     requestType: 'RETAILER_LOAD_REQUEST',
@@ -117,9 +117,9 @@ export const INITIAL_CANONICAL_SHIPMENTS: CanonicalShipment[] = [
     weightKg: 2500,
     goodsType: 'FMCG Packaged Goods',
     specialInstructions: 'Palletized cartons. Forklift available at Bangalore dock.',
-    requestedPrice: 9500,
-    systemRecommendedPrice: 9200,
-    platformFee: 276,
+    requestedPrice: 10000, // Reconciled Retailer Budget = 9200 / (1 - 0.08) = 10000
+    systemRecommendedPrice: 10000,
+    platformFee: 800,
     insuranceFee: 150,
     escrowStatus: 'Held in Escrow',
     isReturnTrip: false,
@@ -146,7 +146,7 @@ export function createCanonicalShipment(input: {
   notes?: string;
 }): CanonicalShipment {
   const route = calculateDistanceAndDuration(input.from, input.to);
-  const pricing = calculateDeterministicPrice({
+  const pricing = calculateBackhaulPricing({
     distanceKm: route.distanceKm,
     weightKg: input.weightKg,
     vehicleType: input.vehicleType,
@@ -155,6 +155,7 @@ export function createCanonicalShipment(input: {
   });
 
   const isDriver = input.requestType === 'DRIVER_RETURN_TRIP';
+  const targetPrice = isDriver ? pricing.driverPayout : pricing.retailerBudget;
 
   return {
     id: `shipment-${Date.now()}`,
@@ -184,8 +185,8 @@ export function createCanonicalShipment(input: {
     weightKg: input.weightKg,
     goodsType: input.goodsType,
     specialInstructions: input.notes,
-    requestedPrice: input.requestedPrice,
-    systemRecommendedPrice: pricing.systemRecommendedPrice,
+    requestedPrice: input.requestedPrice || targetPrice,
+    systemRecommendedPrice: targetPrice,
     platformFee: pricing.platformFee,
     insuranceFee: pricing.insuranceFee,
     escrowStatus: 'Unfunded',

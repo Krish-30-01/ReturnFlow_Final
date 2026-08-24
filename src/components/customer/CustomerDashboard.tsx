@@ -6,10 +6,6 @@ import {
   Eye,
   Edit2,
   XCircle,
-  CheckCircle2,
-  Clock,
-  MapPin,
-  Store,
   TrendingDown
 } from 'lucide-react';
 import {
@@ -22,7 +18,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import { LoadRequest } from '../../types/logistics';
-import { formatCurrency, formatWeight } from '../../utils/formatting';
+import { formatCurrency } from '../../utils/formatting';
 import { useCountUp } from '../../hooks/useCountUp';
 
 interface CustomerDashboardProps {
@@ -30,6 +26,7 @@ interface CustomerDashboardProps {
   onNavigate: (page: string) => void;
   onSelectLoad: (loadId: string) => void;
   onBrowseMatches: (loadId: string) => void;
+  onCancelLoad?: (loadId: string) => void;
 }
 
 const SAVINGS_TREND_DATA = [
@@ -44,19 +41,21 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   loads,
   onNavigate,
   onSelectLoad,
-  onBrowseMatches
+  onBrowseMatches,
+  onCancelLoad
 }) => {
   const [hoveredLoadId, setHoveredLoadId] = useState<string | null>(null);
-  const [loadList, setLoadList] = useState<LoadRequest[]>(loads);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
-  const activeLoads = loadList.filter((l) => l.status !== 'Delivered');
-  const deliveredLoads = loadList.filter((l) => l.status === 'Delivered');
+  const activeLoads = loads.filter((l) => l.status !== 'Delivered');
+  const deliveredLoads = loads.filter((l) => l.status === 'Delivered');
   const savingsPercent = useCountUp(34.8, 1600, 1);
 
   const handleCancelLoad = (e: React.MouseEvent, loadId: string) => {
     e.stopPropagation();
-    setLoadList((prev) => prev.filter((l) => l.id !== loadId));
+    if (onCancelLoad) {
+      onCancelLoad(loadId);
+    }
     setFeedbackToast(`Consignment #${loadId} cancelled successfully.`);
     setTimeout(() => setFeedbackToast(null), 3500);
   };
@@ -153,7 +152,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                     }}
                     style={{
                       padding: '18px',
-                      backgroundColor: 'var(--surface-3)',
+                      backgroundColor: 'var(--surface-2)',
                       borderRadius: 'var(--radius-md)',
                       border: isHovered ? '1.5px solid var(--brand-amber)' : '1px solid var(--border-color)',
                       display: 'flex',
@@ -180,7 +179,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                           alignItems: 'center',
                           gap: '6px',
                           transition: 'opacity 180ms ease, transform 180ms ease',
-                          opacity: isHovered ? 1 : 0.85,
+                          opacity: 1,
                           transform: isHovered ? 'translateY(0)' : 'translateY(1px)'
                         }}
                       >
@@ -228,23 +227,17 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       </div>
                     </div>
 
-                    {/* Status Row with Live Pulse Dots */}
+                      {/* Status Row with Live Pulse Dots */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {isSearching ? (
                           <span className="status-pill status-searching" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#BA7517] opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#BA7517]"></span>
-                            </span>
+                            <span className="status-dot-pulse" />
                             <span>Searching for Return Trucks</span>
                           </span>
                         ) : (
                           <span className="status-pill status-in-transit" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1D9E75] opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#1D9E75]"></span>
-                            </span>
+                            <span className="status-dot-pulse" />
                             <span>{load.status} (In Transit)</span>
                           </span>
                         )}
@@ -285,13 +278,13 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               </div>
 
               {/* Interactive Recharts Savings Area Chart */}
-              <div style={{ margin: '0 0 20px', background: 'var(--surface-3)', padding: '16px 12px 6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <div style={{ margin: '0 0 20px', background: 'var(--surface-2)', padding: '16px 12px 6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 6px' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
                     Cumulative Shipper Savings (₹)
                   </span>
                   <span style={{ fontSize: '0.6875rem', color: 'var(--brand-amber)', fontFamily: 'var(--font-mono)' }}>
-                    Avg 34.8% Cut
+                    Avg {savingsPercent}% Cut
                   </span>
                 </div>
 
@@ -311,7 +304,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                         content={({ active, payload, label }) => {
                           if (active && payload && payload.length) {
                             return (
-                              <div style={{ background: '#0F172A', border: '1px solid rgba(186,117,23,0.4)', borderRadius: '8px', padding: '8px 12px', boxShadow: '0 8px 20px rgba(0,0,0,0.5)', color: '#FFFFFF', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                              <div className="chart-tooltip-animated" style={{ background: '#0F172A', border: '1px solid rgba(186,117,23,0.4)', borderRadius: '8px', padding: '8px 12px', boxShadow: '0 8px 20px rgba(0,0,0,0.5)', color: '#FFFFFF', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
                                 <div style={{ color: '#94A3B8', marginBottom: '2px' }}>{label} 2026</div>
                                 <div style={{ color: '#BA7517', fontWeight: 'bold', fontSize: '13px' }}>Saved {formatCurrency(payload[0].value as number)}</div>
                                 <div style={{ color: '#E2E8F0', marginTop: '2px', fontSize: '10px' }}>{payload[0].payload.discountPct}% Discount vs Brokers</div>
@@ -321,7 +314,19 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                           return null;
                         }}
                       />
-                      <Area type="monotone" dataKey="savings" stroke="#BA7517" strokeWidth={2.5} fillOpacity={1} fill="url(#customerSavingsGrad)" dot={{ r: 3, fill: '#BA7517', strokeWidth: 1.5, stroke: '#FFFFFF' }} activeDot={{ r: 5, fill: '#BA7517', stroke: '#FFFFFF', strokeWidth: 2 }} />
+                      <Area
+                        type="monotone"
+                        dataKey="savings"
+                        stroke="#BA7517"
+                        strokeWidth={2.5}
+                        fillOpacity={1}
+                        fill="url(#customerSavingsGrad)"
+                        dot={{ r: 3, fill: '#BA7517', strokeWidth: 1.5, stroke: '#FFFFFF' }}
+                        activeDot={{ r: 5, fill: '#BA7517', stroke: '#FFFFFF', strokeWidth: 2 }}
+                        isAnimationActive={true}
+                        animationDuration={1400}
+                        animationEasing="ease-out"
+                      />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -344,7 +349,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                         {dl.from} → {dl.to}
                       </div>
                       <span className="status-pill status-delivered" style={{ fontSize: '0.6875rem' }}>
-                        <CheckCircle2 size={11} />
+                        <span className="status-dot-static" style={{ color: 'var(--brand-teal)' }} />
                         <span>Delivered</span>
                       </span>
                     </div>

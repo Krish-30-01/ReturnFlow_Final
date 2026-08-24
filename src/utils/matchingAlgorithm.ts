@@ -1,298 +1,359 @@
 import { Trip, LoadRequest, MatchResult } from '../types/logistics';
+import { calculateBackhaulPricing } from '../services/pricingEngine';
+import {
+  haversineDistanceKm,
+  estimateRoadDistanceKm,
+  generateCorridorCode
+} from '../services/routingEngine';
+import { resolveLocation, ResolvedLocation } from '../services/geocodingService';
 
-export interface CorridorData {
-  id: string;
-  name: string;
-  highway: string;
-  distanceKm: number;
-  cities: { name: string; lat: number; lng: number }[];
-  forwardDemandTonsPerDay: number;
-  returnDemandTonsPerDay: number;
-  emptyReturnRate: number; // e.g. 0.42 = 42% empty backhaul without platform
-}
-
-export const CORRIDORS: Record<string, CorridorData> = {
-  'HYD-WAR': {
-    id: 'HYD-WAR',
-    name: 'Hyderabad — Warangal Corridor',
-    highway: 'NH163',
-    distanceKm: 148,
-    cities: [
-      { name: 'Hyderabad (Uppal Hub)', lat: 17.3984, lng: 78.5583 },
-      { name: 'Bhongir', lat: 17.5108, lng: 78.8891 },
-      { name: 'Jangaon', lat: 17.7277, lng: 79.1558 },
-      { name: 'Kazipet Junction', lat: 17.9784, lng: 79.5255 },
-      { name: 'Warangal Industrial Area', lat: 17.9689, lng: 79.5941 }
-    ],
-    forwardDemandTonsPerDay: 480,
-    returnDemandTonsPerDay: 320,
-    emptyReturnRate: 0.44
-  },
-  'HYD-BLR': {
-    id: 'HYD-BLR',
-    name: 'Hyderabad — Bangalore Corridor',
-    highway: 'NH44',
-    distanceKm: 569,
-    cities: [
-      { name: 'Hyderabad (Shamshabad Logistics Park)', lat: 17.2403, lng: 78.4294 },
-      { name: 'Jadcherla', lat: 16.7663, lng: 78.1408 },
-      { name: 'Kurnool Tollway', lat: 15.8281, lng: 78.0373 },
-      { name: 'Anantapur Hub', lat: 14.6819, lng: 77.6006 },
-      { name: 'Chikkaballapur', lat: 13.4325, lng: 77.7275 },
-      { name: 'Bangalore (Peenya / Electronic City)', lat: 12.9716, lng: 77.5946 }
-    ],
-    forwardDemandTonsPerDay: 1250,
-    returnDemandTonsPerDay: 980,
-    emptyReturnRate: 0.38
-  },
-  'DEL-BLR': {
-    id: 'DEL-BLR',
-    name: 'Delhi — Bangalore Grand Corridor',
-    highway: 'NH44',
-    distanceKm: 2150,
-    cities: [
-      { name: 'Delhi NCR (Kundli Logistics Hub)', lat: 28.7041, lng: 77.1025 },
-      { name: 'Agra', lat: 27.1767, lng: 78.0081 },
-      { name: 'Gwalior', lat: 26.2183, lng: 78.1828 },
-      { name: 'Nagpur Logistics Hub', lat: 21.1458, lng: 79.0882 },
-      { name: 'Hyderabad', lat: 17.3850, lng: 78.4867 },
-      { name: 'Bangalore', lat: 12.9716, lng: 77.5946 }
-    ],
-    forwardDemandTonsPerDay: 2400,
-    returnDemandTonsPerDay: 1700,
-    emptyReturnRate: 0.46
-  },
-  'MUM-PUN': {
-    id: 'MUM-PUN',
-    name: 'Mumbai — Pune — Kolhapur Expressway',
-    highway: 'NH48',
-    distanceKm: 230,
-    cities: [
-      { name: 'Mumbai (JNPT Navi Mumbai)', lat: 18.9498, lng: 72.9515 },
-      { name: 'Panvel', lat: 18.9894, lng: 73.1175 },
-      { name: 'Lonavala Ghats', lat: 18.7557, lng: 73.4091 },
-      { name: 'Pune (Chakan Auto Cluster)', lat: 18.7583, lng: 73.8567 }
-    ],
-    forwardDemandTonsPerDay: 1800,
-    returnDemandTonsPerDay: 1450,
-    emptyReturnRate: 0.35
-  },
-  'VIJ-HYD': {
-    id: 'VIJ-HYD',
-    name: 'Vijayawada — Hyderabad Corridor',
-    highway: 'NH65',
-    distanceKm: 275,
-    cities: [
-      { name: 'Vijayawada Auto Nagar', lat: 16.5062, lng: 80.6480 },
-      { name: 'Nandigama', lat: 16.7725, lng: 80.2925 },
-      { name: 'Suryapet Hub', lat: 17.1439, lng: 79.6239 },
-      { name: 'Nalgonda Bypass', lat: 17.0577, lng: 79.2684 },
-      { name: 'Hyderabad (L.B. Nagar)', lat: 17.3512, lng: 78.5522 }
-    ],
-    forwardDemandTonsPerDay: 620,
-    returnDemandTonsPerDay: 540,
-    emptyReturnRate: 0.40
-  }
+/**
+ * Tunable multi-factor scoring weights (Must sum to 1.0).
+ */
+export const MATCH_WEIGHTS = {
+  CORRIDOR_OVERLAP: 0.35,      // 35% weight: Route alignment along highway geometry
+  CAPACITY_FIT: 0.25,          // 25% weight: Payload vs spare capacity efficiency
+  SCHEDULE_COMPATIBILITY: 0.20, // 20% weight: Departure & pickup window alignment
+  DETOUR_COST: 0.15,           // 15% weight: Detour mileage & time penalty
+  RELIABILITY: 0.05            // 5% weight: Driver on-time delivery rating
 };
 
-/**
- * City keywords mapped to corridors for auto-detection.
- * When a user types "Warangal" we know it's on HYD-WAR, not HYD-BLR.
- */
-const CITY_CORRIDOR_MAP: { keyword: string; corridors: string[] }[] = [
-  // HYD-WAR corridor cities
-  { keyword: 'warangal', corridors: ['HYD-WAR'] },
-  { keyword: 'kazipet', corridors: ['HYD-WAR'] },
-  { keyword: 'jangaon', corridors: ['HYD-WAR'] },
-  { keyword: 'bhongir', corridors: ['HYD-WAR'] },
-  // HYD-BLR corridor cities
-  { keyword: 'bangalore', corridors: ['HYD-BLR', 'DEL-BLR'] },
-  { keyword: 'bengaluru', corridors: ['HYD-BLR', 'DEL-BLR'] },
-  { keyword: 'peenya', corridors: ['HYD-BLR'] },
-  { keyword: 'electronic city', corridors: ['HYD-BLR'] },
-  { keyword: 'kurnool', corridors: ['HYD-BLR'] },
-  { keyword: 'anantapur', corridors: ['HYD-BLR'] },
-  { keyword: 'jadcherla', corridors: ['HYD-BLR'] },
-  { keyword: 'chikkaballapur', corridors: ['HYD-BLR'] },
-  // DEL-BLR corridor cities
-  { keyword: 'delhi', corridors: ['DEL-BLR'] },
-  { keyword: 'kundli', corridors: ['DEL-BLR'] },
-  { keyword: 'agra', corridors: ['DEL-BLR'] },
-  { keyword: 'gwalior', corridors: ['DEL-BLR'] },
-  { keyword: 'nagpur', corridors: ['DEL-BLR'] },
-  // MUM-PUN corridor cities
-  { keyword: 'mumbai', corridors: ['MUM-PUN'] },
-  { keyword: 'jnpt', corridors: ['MUM-PUN'] },
-  { keyword: 'navi mumbai', corridors: ['MUM-PUN'] },
-  { keyword: 'panvel', corridors: ['MUM-PUN'] },
-  { keyword: 'lonavala', corridors: ['MUM-PUN'] },
-  { keyword: 'pune', corridors: ['MUM-PUN'] },
-  { keyword: 'chakan', corridors: ['MUM-PUN'] },
-  // VIJ-HYD corridor cities
-  { keyword: 'vijayawada', corridors: ['VIJ-HYD'] },
-  { keyword: 'nandigama', corridors: ['VIJ-HYD'] },
-  { keyword: 'suryapet', corridors: ['VIJ-HYD'] },
-  { keyword: 'nalgonda', corridors: ['VIJ-HYD'] },
-  // Hyderabad is a hub — appears in multiple corridors
-  { keyword: 'hyderabad', corridors: ['HYD-WAR', 'HYD-BLR', 'VIJ-HYD', 'DEL-BLR'] },
-  { keyword: 'shamshabad', corridors: ['HYD-BLR'] },
-  { keyword: 'uppal', corridors: ['HYD-WAR'] },
-  { keyword: 'l.b. nagar', corridors: ['VIJ-HYD'] },
-  { keyword: 'lb nagar', corridors: ['VIJ-HYD'] },
-];
-
-/**
- * Auto-detects the best corridor for a given origin → destination pair.
- * Returns the corridor ID (e.g. 'HYD-WAR') or '' if no match found.
- */
-export function detectCorridor(from: string, to: string): string {
-  const normFrom = from.toLowerCase();
-  const normTo = to.toLowerCase();
-
-  // Find corridors that contain the origin city
-  const fromCorridors = new Set<string>();
-  for (const entry of CITY_CORRIDOR_MAP) {
-    if (normFrom.includes(entry.keyword)) {
-      entry.corridors.forEach((c) => fromCorridors.add(c));
-    }
-  }
-
-  // Find corridors that contain the destination city
-  const toCorridors = new Set<string>();
-  for (const entry of CITY_CORRIDOR_MAP) {
-    if (normTo.includes(entry.keyword)) {
-      entry.corridors.forEach((c) => toCorridors.add(c));
-    }
-  }
-
-  // The correct corridor is the intersection — both cities must be on the SAME corridor
-  const intersection = [...fromCorridors].filter((c) => toCorridors.has(c));
-
-  if (intersection.length === 1) return intersection[0];
-
-  // If multiple corridors match (e.g. Hyderabad→Bangalore matches both HYD-BLR and DEL-BLR),
-  // prefer the more specific/shorter corridor
-  if (intersection.length > 1) {
-    // Prefer corridors where neither city is "Hyderabad" hub overlap — i.e. prefer the direct route
-    const directCorridors = intersection.filter((c) => {
-      const corridor = CORRIDORS[c];
-      return corridor && corridor.distanceKm < 1000;
-    });
-    return directCorridors.length > 0 ? directCorridors[0] : intersection[0];
-  }
-
-  return '';
+export interface GeometricOverlapResult {
+  overlapRatio: number;      // 0.0 to 1.0
+  overlapPercent: number;    // 0 to 100
+  extraDetourKm: number;     // extra detour in km
+  pickupDetourKm: number;    // km distance from trip path to pickup
+  dropDetourKm: number;      // km distance from trip path to drop
+  directionCosine: number;   // -1.0 to 1.0 directional alignment
+  description: string;
 }
 
 /**
- * Checks if two corridors are geographically compatible for matching.
- * Two corridors are compatible if they share the same ID or if one is a
- * sub-corridor of the other (e.g., HYD-BLR is a segment of DEL-BLR).
+ * Converts spherical lat/lng coordinates to local flat projection in kilometers
+ * around a reference centroid for precise planar geometry calculations.
  */
-function areCorridorsCompatible(corridorA: string, corridorB: string): boolean {
-  if (corridorA === corridorB) return true;
+function toLocalPlaneKm(
+  point: { lat: number; lng: number },
+  refLat: number
+): { x: number; y: number } {
+  const R = 6371; // Earth radius in km
+  const rad = Math.PI / 180;
+  const x = point.lng * rad * R * Math.cos(refLat * rad);
+  const y = point.lat * rad * R;
+  return { x, y };
+}
 
-  // DEL-BLR passes through Hyderabad and Bangalore, so it overlaps with HYD-BLR
-  const OVERLAPPING_CORRIDORS: Record<string, string[]> = {
-    'DEL-BLR': ['HYD-BLR'],
-    'HYD-BLR': ['DEL-BLR'],
+/**
+ * Resolves coordinate objects for a Trip or LoadRequest safely.
+ */
+export function getCoordinates(
+  entity: { from: string; to: string; originCoords?: { lat: number; lng: number }; destinationCoords?: { lat: number; lng: number } }
+): { origin: { lat: number; lng: number }; destination: { lat: number; lng: number }; originLoc: ResolvedLocation | null; destLoc: ResolvedLocation | null } {
+  let origin = entity.originCoords;
+  let destination = entity.destinationCoords;
+  let originLoc: ResolvedLocation | null = null;
+  let destLoc: ResolvedLocation | null = null;
+
+  if (!origin || isNaN(origin.lat) || isNaN(origin.lng) || (origin.lat === 0 && origin.lng === 0)) {
+    originLoc = resolveLocation(entity.from);
+    origin = originLoc ? { lat: originLoc.lat, lng: originLoc.lng } : { lat: 17.3850, lng: 78.4867 };
+  }
+
+  if (!destination || isNaN(destination.lat) || isNaN(destination.lng) || (destination.lat === 0 && destination.lng === 0)) {
+    destLoc = resolveLocation(entity.to);
+    destination = destLoc ? { lat: destLoc.lat, lng: destLoc.lng } : { lat: 12.9716, lng: 77.5946 };
+  }
+
+  return { origin, destination, originLoc, destLoc };
+}
+
+/**
+ * Generic pure geometric route overlap & detour engine.
+ * Works for ANY valid coordinate pairs across India without hardcoded city rules.
+ */
+export function calculateGeometricOverlap(
+  tripOrigin: { lat: number; lng: number },
+  tripDest: { lat: number; lng: number },
+  loadOrigin: { lat: number; lng: number },
+  loadDest: { lat: number; lng: number }
+): GeometricOverlapResult {
+  // 1. Check exact / near-identical origin & destination coordinates (city-center / hub radius <= 15 km)
+  const originDist = haversineDistanceKm(tripOrigin, loadOrigin);
+  const destDist = haversineDistanceKm(tripDest, loadDest);
+
+  if (originDist <= 15 && destDist <= 15) {
+    return {
+      overlapRatio: 1.0,
+      overlapPercent: 100,
+      extraDetourKm: 0,
+      pickupDetourKm: Math.round(originDist),
+      dropDetourKm: Math.round(destDist),
+      directionCosine: 1.0,
+      description: '100% direct corridor overlap (0 km detour)'
+    };
+  }
+
+  // Reference latitude for local equirectangular metric projection
+  const refLat = (tripOrigin.lat + tripDest.lat + loadOrigin.lat + loadDest.lat) / 4;
+
+  const tO = toLocalPlaneKm(tripOrigin, refLat);
+  const tD = toLocalPlaneKm(tripDest, refLat);
+  const lO = toLocalPlaneKm(loadOrigin, refLat);
+  const lD = toLocalPlaneKm(loadDest, refLat);
+
+  // Vector representations in kilometers
+  const vTrip = { x: tD.x - tO.x, y: tD.y - tO.y };
+  const vLoad = { x: lD.x - lO.x, y: lD.y - lO.y };
+
+  const lenTrip = Math.sqrt(vTrip.x * vTrip.x + vTrip.y * vTrip.y);
+  const lenLoad = Math.sqrt(vLoad.x * vLoad.x + vLoad.y * vLoad.y);
+
+  if (lenTrip < 2 || lenLoad < 2) {
+    return {
+      overlapRatio: 0,
+      overlapPercent: 0,
+      extraDetourKm: 100,
+      pickupDetourKm: 50,
+      dropDetourKm: 50,
+      directionCosine: 0,
+      description: 'Insufficient route distance for corridor matching'
+    };
+  }
+
+  // 1. DIRECTIONAL ALIGNMENT (Cosine of angle between vectors)
+  const dotProduct = vTrip.x * vLoad.x + vTrip.y * vLoad.y;
+  const directionCosine = dotProduct / (lenTrip * lenLoad);
+
+  // If moving in opposite directions or perpendicular, overlap is 0
+  if (directionCosine <= 0.1) {
+    return {
+      overlapRatio: 0,
+      overlapPercent: 0,
+      extraDetourKm: 200,
+      pickupDetourKm: Math.round(originDist),
+      dropDetourKm: Math.round(destDist),
+      directionCosine,
+      description: 'Incompatible direction: Routes diverge or travel in opposite directions'
+    };
+  }
+
+  // 2. PROJECTION ONTO TRIP SEGMENT
+  // t = 0 is trip origin, t = 1 is trip destination
+  const tripSq = lenTrip * lenTrip;
+  const tPickup = ((lO.x - tO.x) * vTrip.x + (lO.y - tO.y) * vTrip.y) / tripSq;
+  const tDrop = ((lD.x - tO.x) * vTrip.x + (lD.y - tO.y) * vTrip.y) / tripSq;
+
+  // Closest points on trip line
+  const projPickup = { x: tO.x + tPickup * vTrip.x, y: tO.y + tPickup * vTrip.y };
+  const projDrop = { x: tO.x + tDrop * vTrip.x, y: tO.y + tDrop * vTrip.y };
+
+  const pickupDetourKm = Math.sqrt(Math.pow(lO.x - projPickup.x, 2) + Math.pow(lO.y - projPickup.y, 2));
+  const dropDetourKm = Math.sqrt(Math.pow(lD.x - projDrop.x, 2) + Math.pow(lD.y - projDrop.y, 2));
+
+  // Acceptable cross-track detour radius (15-25 km)
+  // Max allowable cross-track distance from transit line (60 km with graceful penalty)
+  if (pickupDetourKm > 60 || dropDetourKm > 60) {
+    return {
+      overlapRatio: 0,
+      overlapPercent: 0,
+      extraDetourKm: Math.round(pickupDetourKm + dropDetourKm),
+      pickupDetourKm: Math.round(pickupDetourKm),
+      dropDetourKm: Math.round(dropDetourKm),
+      directionCosine,
+      description: `Excessive route deviation (pickup: ${Math.round(pickupDetourKm)} km, drop: ${Math.round(dropDetourKm)} km away from corridor)`
+    };
+  }
+
+  // Check that pickup happens before drop along trip progression
+  if (tDrop < tPickup - 0.05) {
+    return {
+      overlapRatio: 0,
+      overlapPercent: 0,
+      extraDetourKm: 150,
+      pickupDetourKm: Math.round(pickupDetourKm),
+      dropDetourKm: Math.round(dropDetourKm),
+      directionCosine,
+      description: 'Reverse transit sequence: Load drop occurs behind pickup point'
+    };
+  }
+
+  // 3. LONGITUDINAL SHARED SEGMENT OVERLAP
+  const startOverlap = Math.max(0, Math.min(1, tPickup));
+  const endOverlap = Math.max(0, Math.min(1, tDrop));
+  const sharedDistanceKm = Math.max(0, (endOverlap - startOverlap) * lenTrip);
+
+  // Ratio of load's route that lies within the driver's transit leg
+  const baseCoverageRatio = Math.min(1.0, sharedDistanceKm / Math.max(10, lenLoad));
+
+  // Cross-track detour penalty (1.0 for <= 15 km detour, degrades gracefully up to 60 km)
+  const avgCrossTrackKm = (pickupDetourKm + dropDetourKm) / 2;
+  const detourPenalty = avgCrossTrackKm <= 15
+    ? 1.0
+    : Math.max(0, 1.0 - ((avgCrossTrackKm - 15) / 45));
+
+  // Final generic geometric overlap ratio (0.0 to 1.0)
+  const overlapRatio = Math.min(1.0, Math.max(0, baseCoverageRatio * directionCosine * detourPenalty));
+  const overlapPercent = Math.round(overlapRatio * 100);
+
+  // 4. EXACT ROAD DETOUR ESTIMATION
+  const directTripRoadKm = estimateRoadDistanceKm(tripOrigin, tripDest);
+  const toPickupRoadKm = estimateRoadDistanceKm(tripOrigin, loadOrigin);
+  const loadRoadKm = estimateRoadDistanceKm(loadOrigin, loadDest);
+  const fromDropRoadKm = estimateRoadDistanceKm(loadDest, tripDest);
+
+  const totalDetourTripKm = toPickupRoadKm + loadRoadKm + fromDropRoadKm;
+  const extraDetourKm = Math.max(0, totalDetourTripKm - directTripRoadKm);
+
+  let description = '';
+  if (overlapPercent >= 90) {
+    description = `${overlapPercent}% direct corridor overlap with ~${extraDetourKm} km route detour`;
+  } else if (overlapPercent >= 60) {
+    description = `${overlapPercent}% corridor sub-segment coverage along transit path (~${extraDetourKm} km detour)`;
+  } else {
+    description = `${overlapPercent}% partial corridor alignment (~${extraDetourKm} km detour)`;
+  }
+
+  return {
+    overlapRatio,
+    overlapPercent,
+    extraDetourKm,
+    pickupDetourKm: Math.round(pickupDetourKm),
+    dropDetourKm: Math.round(dropDetourKm),
+    directionCosine,
+    description
   };
-
-  const overlaps = OVERLAPPING_CORRIDORS[corridorA];
-  return overlaps ? overlaps.includes(corridorB) : false;
 }
 
 /**
- * Calculates a match score (0-100) between a Truck Trip and a Load Request.
- * Only produces meaningful scores when the truck and load are on the same or
- * overlapping corridors. Geographically incompatible matches are rejected.
+ * Evaluates candidate trips and outputs a normalized 0-100 compatibility score
+ * using purely generic coordinate geometry.
  */
 export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult {
-  const availableCapacity = trip.totalCapacityKg - trip.bookedCapacityKg;
-  const loadWeight = load.weightUnit === 'CBM' ? load.weight * 250 : load.weight; // approx 250kg per CBM
+  const tripCoords = getCoordinates(trip);
+  const loadCoords = getCoordinates(load);
 
-  // Determine the load's corridor (use explicit if set, otherwise auto-detect)
-  const loadCorridor = load.corridor || detectCorridor(load.from, load.to);
-  const tripCorridor = trip.corridor || detectCorridor(trip.from, trip.to);
+  const loadWeight = load.weightUnit === 'CBM' ? load.weight * 250 : load.weight;
+  const availableCapacity = Math.max(0, trip.totalCapacityKg - trip.bookedCapacityKg);
 
-  // 1. Route overlap score (0 - 40 points)
-  // Geographic corridor compatibility is the PRIMARY filter
-  let routeOverlapScore = 0;
-  const corridorsMatch = tripCorridor && loadCorridor && areCorridorsCompatible(tripCorridor, loadCorridor);
+  // 1. GEOMETRIC CORRIDOR OVERLAP FACTOR (0.0 to 1.0)
+  const geom = calculateGeometricOverlap(
+    tripCoords.origin,
+    tripCoords.destination,
+    loadCoords.origin,
+    loadCoords.destination
+  );
+  const fCorridorOverlap = geom.overlapRatio;
 
-  if (corridorsMatch) {
-    // Same corridor — now check if cities align precisely
-    const normTripFrom = trip.from.toLowerCase();
-    const normTripTo = trip.to.toLowerCase();
-    const normLoadFrom = load.from.toLowerCase();
-    const normLoadTo = load.to.toLowerCase();
-
-    if (
-      (normTripFrom.includes(normLoadFrom) || normLoadFrom.includes(normTripFrom)) &&
-      (normTripTo.includes(normLoadTo) || normLoadTo.includes(normTripTo))
-    ) {
-      routeOverlapScore = 40; // Perfect city-level match on same corridor
-    } else if (tripCorridor === loadCorridor) {
-      routeOverlapScore = 32; // Same corridor, different pickup/drop cities (minor detour)
-    } else {
-      routeOverlapScore = 24; // Overlapping corridors (e.g. HYD-BLR segment of DEL-BLR)
-    }
+  // 2. CAPACITY FIT FACTOR (0.0 to 1.0)
+  let fCapacityFit = 0;
+  let utilizationPct = 0;
+  if (availableCapacity <= 0) {
+    fCapacityFit = 0.05;
+  } else if (availableCapacity < loadWeight) {
+    fCapacityFit = Math.max(0.1, (availableCapacity / loadWeight) * 0.4);
+    utilizationPct = Math.round((loadWeight / availableCapacity) * 100);
   } else {
-    // Different corridor entirely — this match should NOT happen
-    // Give a very low score so it sinks to the bottom or gets filtered out
-    routeOverlapScore = 2;
-  }
-
-  // 2. Capacity Score (0 - 30 points)
-  let capacityScore = 0;
-  if (availableCapacity >= loadWeight) {
     const utilization = loadWeight / availableCapacity;
-    if (utilization >= 0.7) {
-      capacityScore = 30; // Excellent utilization
-    } else if (utilization >= 0.3) {
-      capacityScore = 25;
+    utilizationPct = Math.round(utilization * 100);
+    if (utilization >= 0.5 && utilization <= 0.95) {
+      fCapacityFit = 0.90 + 0.10 * ((utilization - 0.5) / 0.45);
+    } else if (utilization >= 0.2 && utilization < 0.5) {
+      fCapacityFit = 0.75 + 0.15 * ((utilization - 0.2) / 0.3);
+    } else if (utilization > 0.95) {
+      fCapacityFit = 0.85;
     } else {
-      capacityScore = 18;
+      fCapacityFit = 0.50 + 0.25 * (utilization / 0.2);
     }
-  } else {
-    capacityScore = 5; // Under-capacity
+  }
+  fCapacityFit = Math.min(1.0, Math.max(0, fCapacityFit));
+
+  // 3. SCHEDULE COMPATIBILITY FACTOR (0.0 to 1.0)
+  let fSchedule = 0.90;
+  let scheduleDiffDays = 0;
+  if (trip.departureDate && load.date) {
+    const tripTime = new Date(trip.departureDate).getTime();
+    const loadTime = new Date(load.date).getTime();
+    scheduleDiffDays = Math.round(Math.abs(tripTime - loadTime) / 86400000);
+
+    if (scheduleDiffDays === 0) {
+      fSchedule = 1.0;
+    } else if (scheduleDiffDays === 1) {
+      fSchedule = 0.75;
+    } else if (scheduleDiffDays === 2) {
+      fSchedule = 0.40;
+    } else {
+      fSchedule = Math.max(0.05, 0.30 - (scheduleDiffDays * 0.05));
+    }
   }
 
-  // 3. Time Window Score (0 - 20 points)
-  let timeWindowScore = 18;
-  if (trip.departureDate === load.date) {
-    timeWindowScore = 20;
+  // 4. DETOUR COST FACTOR (0.0 to 1.0)
+  let fDetour = 1.0;
+  if (geom.extraDetourKm <= 5) {
+    fDetour = 1.0;
+  } else if (geom.extraDetourKm <= 25) {
+    fDetour = 0.90 - ((geom.extraDetourKm - 5) / 20) * 0.15;
+  } else if (geom.extraDetourKm <= 60) {
+    fDetour = 0.75 - ((geom.extraDetourKm - 25) / 35) * 0.25;
   } else {
-    timeWindowScore = 14;
+    fDetour = Math.max(0.1, 0.50 - ((geom.extraDetourKm - 60) / 60) * 0.4);
   }
 
-  // 4. Price Score (0 - 10 points)
-  let priceScore = 8;
-  if (load.budget >= trip.minPrice) {
-    priceScore = 10;
-  } else {
-    priceScore = 6;
-  }
+  // 5. DRIVER RELIABILITY FACTOR (0.0 to 1.0)
+  const driverRating = trip.driverRating || 4.8;
+  const fReliability = Math.min(1.0, Math.max(0.5, driverRating / 5.0));
 
-  const rawScore = routeOverlapScore + capacityScore + timeWindowScore + priceScore;
-  const matchScore = Math.min(99, Math.max(10, rawScore));
+  // WEIGHTED COMPOSITE SCORE (0 - 100)
+  const rawWeightedScore =
+    (fCorridorOverlap * MATCH_WEIGHTS.CORRIDOR_OVERLAP) +
+    (fCapacityFit * MATCH_WEIGHTS.CAPACITY_FIT) +
+    (fSchedule * MATCH_WEIGHTS.SCHEDULE_COMPATIBILITY) +
+    (fDetour * MATCH_WEIGHTS.DETOUR_COST) +
+    (fReliability * MATCH_WEIGHTS.RELIABILITY);
 
-  // Pricing Model: Split fuel & backhaul efficiency discount
-  const baseRatePerKg = trip.minPrice ? trip.minPrice / Math.max(100, availableCapacity) : 2.5;
-  const estimatedCost = Math.max(1200, Math.round(loadWeight * baseRatePerKg * 1.15));
-  const marketPrice = Math.round(estimatedCost * 1.42); // 30-40% higher standard one-way freight
-  const savingsPercentage = Math.round(((marketPrice - estimatedCost) / marketPrice) * 100);
-  const co2SavedKg = Math.round((loadWeight / 1000) * 85); // 85kg CO2 saved per ton by eliminating deadhead miles
+  // If geometric overlap is 0, overall score is zeroed out to guarantee no false matches
+  const matchScore = fCorridorOverlap === 0
+    ? 0
+    : Math.min(99, Math.max(10, Math.round(rawWeightedScore * 100)));
 
+  // PRICING: Driver names their price → platform adds 8% on top → retailer pays total.
+  // This is the single source of truth for all price displays in the retailer portal.
+  const PLATFORM_RATE = 0.08;
+  const driverPayout = trip.minPrice;                                      // exactly what driver asked
+  const retailerBudget = Math.round(driverPayout / (1 - PLATFORM_RATE));  // e.g. ₹28,000 / 0.92 = ₹30,435
+  const platformFee = retailerBudget - driverPayout;                       // exact 8% cut
+
+  // Keep engine call only for market benchmark data (savings badge, CO₂)
+  const distanceKm = estimateRoadDistanceKm(loadCoords.origin, loadCoords.destination);
+  const pricing = calculateBackhaulPricing({
+    distanceKm,
+    weightKg: loadWeight,
+    vehicleType: trip.vehicleType,
+    corridorId: generateCorridorCode(load.from, load.to),
+    isReturnTrip: true
+  });
+
+  const calculatedPrice = retailerBudget;
+  const marketPrice = pricing.marketPrice;
+  const savingsPercentage = Math.max(10, Math.round(((marketPrice - retailerBudget) / marketPrice) * 100));
+  const co2SavedKg = pricing.co2SavedKg;
+
+  // DYNAMIC ALGORITHM INSIGHT: Generated purely from computed factors
   let explanation = '';
-  if (!corridorsMatch) {
-    explanation = `⚠ Low corridor alignment — truck is on ${tripCorridor || 'unknown'} corridor but load needs ${loadCorridor || 'unknown'} corridor. Not recommended.`;
-  } else if (matchScore >= 90) {
-    explanation = `Optimal backhaul match! Same day schedule, exact route corridor (${tripCorridor}), and high capacity efficiency. Saves ₹${(marketPrice - estimatedCost).toLocaleString()} vs one-way booking.`;
-  } else if (matchScore >= 75) {
-    explanation = `Strong partial load compatibility on ${tripCorridor} corridor. Pickup location aligns with driver's primary transit route with minimal detour.`;
+  if (fCorridorOverlap === 0) {
+    explanation = `⚠ Route mismatch: Truck route (${trip.from} → ${trip.to}) does not align with load route (${load.from} → ${load.to}).`;
   } else {
-    explanation = `Moderate alignment along ${tripCorridor || 'active'} corridor. Truck has ${availableCapacity.toLocaleString()} Kg spare capacity for return leg.`;
+    const scheduleText = scheduleDiffDays === 0 ? 'same-day departure' : `${scheduleDiffDays}-day schedule difference`;
+    const capacityText = `${loadWeight.toLocaleString()} Kg load utilizes ${utilizationPct}% of ${availableCapacity.toLocaleString()} Kg spare capacity`;
+    const detourText = geom.extraDetourKm <= 2 ? '0 km detour' : `~${geom.extraDetourKm} km route detour`;
+    const driverPayoutText = `Driver payout ₹${driverPayout.toLocaleString()} (platform fee ₹${platformFee.toLocaleString()})`;
+
+    if (matchScore >= 90) {
+      explanation = `High-efficiency match: ${geom.description}. ${capacityText} with ${scheduleText} and ${detourText}. ${driverPayoutText} (saves ₹${(marketPrice - calculatedPrice).toLocaleString()} vs spot rate).`;
+    } else if (matchScore >= 70) {
+      explanation = `Strong compatibility: ${geom.description}. ${capacityText} (${scheduleText}, ${detourText}). ${driverPayoutText}.`;
+    } else {
+      explanation = `Partial match: ${geom.description}. ${capacityText} (${scheduleText}). ${driverPayoutText}.`;
+    }
   }
 
   return {
@@ -300,11 +361,11 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
     trip,
     load,
     matchScore,
-    routeOverlapScore,
-    capacityScore,
-    timeWindowScore,
-    priceScore,
-    calculatedPrice: estimatedCost,
+    routeOverlapScore: Math.round(fCorridorOverlap * 100),
+    capacityScore: Math.round(fCapacityFit * 100),
+    timeWindowScore: Math.round(fSchedule * 100),
+    priceScore: Math.round(fDetour * 100),
+    calculatedPrice,
     marketPrice,
     savingsPercentage,
     co2SavedKg,
@@ -312,3 +373,16 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
   };
 }
 
+/**
+ * Filters trips to find valid candidate matches for a load request purely via coordinate geometry.
+ * Discards all trips with zero geometric route overlap.
+ */
+export function getCandidateMatchesForLoad(trips: Trip[], load: LoadRequest): MatchResult[] {
+  if (!load || !trips || trips.length === 0) return [];
+
+  return trips
+    .filter((trip) => trip.status === 'active')
+    .map((trip) => calculateMatchScore(trip, load))
+    .filter((match) => match.matchScore >= 35 && match.routeOverlapScore > 0)
+    .sort((a, b) => b.matchScore - a.matchScore);
+}

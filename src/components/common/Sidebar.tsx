@@ -5,19 +5,18 @@ import {
   PlusCircle,
   CalendarCheck,
   Wallet,
-  MessageSquare,
-  User,
-  Settings,
   LogOut,
   Package,
-  CreditCard,
-  Layers
+  Layers,
+  BarChart3
 } from 'lucide-react';
 import { Persona } from '../../types/logistics';
+import { AppUser } from '../../services/authService';
 
 interface SidebarProps {
   currentPersona: Persona;
   currentPage: string;
+  authUser?: AppUser | null;
   onNavigate: (page: string) => void;
   onSelectPersona: (persona: Persona) => void;
 }
@@ -25,6 +24,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPersona,
   currentPage,
+  authUser,
   onNavigate,
   onSelectPersona
 }) => {
@@ -48,7 +48,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'tracking', label: 'Live Tracking', icon: <CalendarCheck size={18} /> }
   ];
 
-  const currentNavItems = isDriver ? driverNavItems : customerNavItems;
+  const adminNavItems = [
+    { id: 'admin-dashboard', label: 'Ops Console', icon: <BarChart3 size={18} /> }
+  ];
+
+  const currentNavItems =
+    currentPersona === 'admin' ? adminNavItems : isDriver ? driverNavItems : customerNavItems;
+  const workspaceLabel =
+    currentPersona === 'admin'
+      ? 'Platform Operations'
+      : `${authUser?.name || (isDriver ? 'Rajesh Kumar' : 'Priya Sharma')}${isDriver ? ' Fleet' : ''}`;
+  const workspaceSub =
+    currentPersona === 'admin' ? 'Internal Console' : isDriver ? 'Driver Partner Workspace' : 'Retailer Workspace';
 
   return (
     <aside
@@ -70,10 +81,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div>
         <div style={{ padding: '0 8px 16px', borderBottom: '1px solid var(--border-color)', marginBottom: '16px' }}>
           <div style={{ fontSize: '0.6875rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>
-            {isDriver ? 'Driver Partner Workspace' : 'Retailer Workspace'}
+            {workspaceSub}
           </div>
           <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--brand-navy)', marginTop: '2px' }}>
-            {isDriver ? 'Rajesh Kumar Fleet' : 'Apex Retail Hubs'}
+            {workspaceLabel}
           </div>
         </div>
 

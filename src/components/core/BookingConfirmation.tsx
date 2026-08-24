@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Star, ShieldCheck, CheckCircle2, IndianRupee, ArrowRight, CreditCard, Wallet, Smartphone, Truck } from 'lucide-react';
+import { ArrowLeft, Star, ArrowRight, CreditCard, Wallet, Smartphone } from 'lucide-react';
 import { MatchResult, PaymentMethod } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
+import { calculateBackhaulPricing } from '../../services/pricingEngine';
+import { calculateDistanceAndDuration } from '../../services/routingEngine';
 
 interface BookingConfirmationProps {
   match: MatchResult;
@@ -13,9 +15,18 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({ match,
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('UPI');
 
   const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
-  const platformFee = Math.round(match.calculatedPrice * 0.03);
+  const route = calculateDistanceAndDuration(match.load.from, match.load.to);
+  const pricing = calculateBackhaulPricing({
+    distanceKm: route.distanceKm,
+    weightKg,
+    vehicleType: match.trip.vehicleType,
+    corridorId: match.trip.corridor,
+    isReturnTrip: true,
+    retailerBudget: match.calculatedPrice
+  });
+
   const insuranceFee = 150;
-  const totalAmount = match.calculatedPrice + platformFee + insuranceFee;
+  const totalAmount = pricing.retailerBudget + insuranceFee;
 
   return (
     <div style={{ maxWidth: '520px', margin: '0 auto', padding: '16px 0 48px' }} className="animate-fade-in">

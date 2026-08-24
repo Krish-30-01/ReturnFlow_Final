@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Package, MapPin, Calendar, IndianRupee, ArrowRight, Store, ShieldCheck, Route, Cpu } from 'lucide-react';
-import { LoadRequest } from '../../types/logistics';
-import { detectCorridor, CORRIDORS, calculateDistanceAndDuration } from '../../services/routingEngine';
+import { MapPin, IndianRupee, ArrowRight, Store, Route, Cpu } from 'lucide-react';
+import { calculateDistanceAndDuration, generateCorridorCode } from '../../services/routingEngine';
+import { validateLocationStringAsync } from '../../services/geocodingService';
 import { predictFreightPriceAndMatch } from '../../services/mlInferenceService';
+import { NewLoadInput } from '../../types/logistics';
 
 interface PostLoadRequestProps {
-  onSubmitLoad: (loadData: any) => void;
+  onSubmitLoad: (loadData: NewLoadInput) => void;
   onCancel: () => void;
 }
 
@@ -23,29 +24,43 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
     specialInstructions: 'Bubble wrapped retail display shelves. Hydraulic lift gate preferred.'
   });
 
-  const routeInfo = calculateDistanceAndDuration(formData.from, formData.to, formData.corridor);
+  const routeInfo = calculateDistanceAndDuration(formData.from, formData.to);
   const mlPrediction = predictFreightPriceAndMatch({
     distanceKm: routeInfo.distanceKm,
     weightKg: formData.weightUnit === 'CBM' ? formData.weight * 250 : formData.weight,
     corridorId: routeInfo.corridorId
   });
 
-  // Auto-detect corridor when origin or destination changes
+  // Auto-update corridor code when origin or destination changes
   useEffect(() => {
-    const detected = detectCorridor(formData.from, formData.to);
-    if (detected && detected !== formData.corridor) {
-      setFormData((prev) => ({ ...prev, corridor: detected }));
+    const code = generateCorridorCode(formData.from, formData.to);
+    if (code && code !== formData.corridor) {
+      setFormData((prev) => ({ ...prev, corridor: code }));
     }
   }, [formData.from, formData.to]);
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [, setIsValidating] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
-    if (!formData.from.trim()) newErrors.from = 'Pickup location is required.';
-    if (!formData.to.trim()) newErrors.to = 'Drop location is required.';
+    setIsValidating(true);
+    const [fromVal, toVal] = await Promise.all([
+      validateLocationStringAsync(formData.from),
+      validateLocationStringAsync(formData.to)
+    ]);
+    setIsValidating(false);
+
+    if (!fromVal.isValid || !fromVal.location) {
+      newErrors.from = fromVal.error || 'Location not recognized, please select a valid city.';
+    }
+
+    if (!toVal.isValid || !toVal.location) {
+      newErrors.to = toVal.error || 'Location not recognized, please select a valid city.';
+    }
+
     if (!formData.date) newErrors.date = 'Shipment date is required.';
     if (formData.weight <= 0) newErrors.weight = 'Weight/Volume must be greater than 0.';
     if (formData.budget <= 0) newErrors.budget = 'Budget must be greater than 0.';
@@ -56,13 +71,23 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
     }
 
     setErrors({});
-    onSubmitLoad(formData);
+
+    const originCoords = { lat: fromVal.location!.lat, lng: fromVal.location!.lng };
+    const destinationCoords = { lat: toVal.location!.lat, lng: toVal.location!.lng };
+    const corridor = generateCorridorCode(formData.from, formData.to);
+
+    onSubmitLoad({
+      ...formData,
+      corridor,
+      originCoords,
+      destinationCoords
+    });
   };
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '16px 0 48px' }} className="animate-fade-in">
       <div
-        className="card"
+        className="card card-amber"
         style={{
           padding: '36px',
           borderRadius: 'var(--radius-lg)',
@@ -135,8 +160,8 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
             {errors.to && <div className="form-error">{errors.to}</div>}
           </div>
 
-          {/* Auto-detected Corridor Badge */}
-          {formData.corridor && CORRIDORS[formData.corridor] && (
+          {/* Dynamic Route Geometry Badge */}
+          {routeInfo && (
             <div
               style={{
                 display: 'flex',
@@ -152,13 +177,13 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
             >
               <Route size={16} color="var(--brand-teal)" />
               <span style={{ color: 'var(--brand-navy)' }}>
-                <strong>Detected Corridor:</strong>{' '}
-                {CORRIDORS[formData.corridor].name} ({CORRIDORS[formData.corridor].highway}, {routeInfo.distanceKm} km)
+                <strong>Route Corridor:</strong>{' '}
+                {routeInfo.corridorName} (~{routeInfo.distanceKm} km transit route)
               </span>
             </div>
           )}
 
-          {/* ML Price Prediction & Confidence Interval Banner */}
+          {/* Smart Price Estimate & Confidence Interval Banner */}
           <div
             style={{
               padding: '12px 16px',
@@ -171,13 +196,13 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', color: '#0F172A', fontWeight: 600 }}>
               <Cpu size={16} color="#0D9488" />
-              <span>ML Recommended Rate: {mlPrediction.confidenceIntervalText}</span>
+              <span>Market Rate Estimate: {mlPrediction.confidenceIntervalText}</span>
               <span style={{ marginLeft: 'auto', backgroundColor: '#E0F2FE', color: '#0369A1', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>
-                R² = {(mlPrediction.r2Score * 100).toFixed(1)}%
+                Rule-based
               </span>
             </div>
             <p style={{ margin: 0, color: '#64748B' }}>
-              Trained GBDT Model ({mlPrediction.modelName} v{mlPrediction.modelVersion}) · Est. Match Rate: {mlPrediction.predictedMatchScore}%
+              Calibrated on published ₹/ton-km market rates ({mlPrediction.modelName} v{mlPrediction.modelVersion}) · Est. Match Rate: {mlPrediction.predictedMatchScore}%
             </p>
           </div>
 
