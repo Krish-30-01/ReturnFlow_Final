@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wallet, Route, Package, CheckCircle2, Download } from 'lucide-react';
+import { Wallet, Route, Package, CheckCircle2, Download, Info } from 'lucide-react';
 import { EarningsRecord } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
 import { useCountUp } from '../../hooks/useCountUp';
@@ -9,8 +9,35 @@ interface DriverEarningsProps {
   onNavigate: (page: string) => void;
 }
 
-export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavigate: _onNavigate }) => {
-  const targetThisMonth = earnings.reduce((sum, e) => sum + e.amount, 0);
+function downloadGstCsv(earnings: EarningsRecord[]) {
+  const header = 'Date,Route,Corridor,Loads,Weight (Kg),Gross Amount (₹),Escrow Fee (₹),Net Amount (₹),Status,Reference';
+  const rows = earnings.map((e) =>
+    [
+      e.date,
+      `"${e.route}"`,
+      e.corridor,
+      e.loadsCount,
+      e.weightKg,
+      e.amount,
+      e.escrowFeeDeducted,
+      e.amount - e.escrowFeeDeducted,
+      e.status,
+      e.payoutReference
+    ].join(',')
+  );
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `ReturnFlow_Earnings_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavigate: _onNavigate }) => {  const targetThisMonth = earnings.reduce((sum, e) => sum + e.amount, 0);
   const targetTrips = earnings.length;
   const targetLoads = earnings.reduce((sum, e) => sum + (e.loadsCount || 1), 0);
 
@@ -32,7 +59,13 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn-outline-navy btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            className="btn-outline-navy btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => downloadGstCsv(earnings)}
+            disabled={earnings.length === 0}
+            title={earnings.length === 0 ? 'No earnings to export' : 'Download CSV ledger'}
+          >
             <Download size={15} />
             <span>Download GST Statement</span>
           </button>
@@ -131,7 +164,7 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
             {loads}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Average rating 4.9 ★ across 32 retailers
+            Average rating 4.9 ★ across {earnings.reduce((sum, e) => sum + (e.loadsCount || 1), 0)} consignments
           </div>
         </div>
       </div>
@@ -191,8 +224,16 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
                   >
                     +{formatCurrency(record.amount)}
                   </div>
-                  <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
-                    Platform fee 2.5% (-{formatCurrency(record.escrowFeeDeducted)})
+                  <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {/* Fix 10: clarify this is a separate escrow disbursement charge,
+                        distinct from the 8% platform fee already deducted at booking. */}
+                    Escrow processing fee (-{formatCurrency(record.escrowFeeDeducted)})
+                    <span
+                      title="This 2.5% covers escrow hold & UPI disbursement. The 8% platform fee was deducted from the shipper's payment at booking time and is not charged again here."
+                      style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <Info size={11} color="var(--text-tertiary)" />
+                    </span>
                   </div>
                 </div>
 

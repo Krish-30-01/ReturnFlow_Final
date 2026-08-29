@@ -11,13 +11,15 @@ import {
   MatchResult,
   CanonicalShipment,
   NewTripInput,
-  NewLoadInput
+  NewLoadInput,
+  BOOKING_STATUS
 } from '../types/logistics';
 import { getCandidateMatchesForLoad } from '../utils/matchingAlgorithm';
 import { calculateDistanceAndDuration } from '../services/routingEngine';
 import { calculateBackhaulPricing } from '../services/pricingEngine';
 import { INITIAL_CANONICAL_SHIPMENTS, createCanonicalShipment } from '../services/seedService';
 import { SupabaseService } from '../services/supabaseClient';
+import { isLiveBackend } from '../services/supabaseClient';
 import { authService, AppUser } from '../services/authService';
 
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [
@@ -69,6 +71,9 @@ export interface LogisticsState {
   isAuthModalOpen: boolean;
   authModalRole: 'driver' | 'customer';
   isRealtimeConnected: boolean;
+  // Bug 2 fix: track whether we are still waiting for the first connection event
+  // so the header can show "Connecting…" instead of the misleading "Offline" flash.
+  isRealtimeConnecting: boolean;
 
   // Toast
   toastMessage: { text: string; type: 'success' | 'info' | 'warning' } | null;
@@ -110,6 +115,7 @@ export function useLogisticsStore() {
       isAuthModalOpen: false,
       authModalRole: 'driver',
       isRealtimeConnected: false,
+      isRealtimeConnecting: isLiveBackend, // only show "connecting" when Supabase is configured
       toastMessage: null
     };
   });
@@ -155,7 +161,8 @@ export function useLogisticsStore() {
         refreshFromSupabase();
       },
       (connected) => {
-        setState((prev) => ({ ...prev, isRealtimeConnected: connected }));
+        // Bug 2 fix: first status event resolves the "connecting" state.
+        setState((prev) => ({ ...prev, isRealtimeConnected: connected, isRealtimeConnecting: false }));
       }
     );
 
@@ -188,13 +195,27 @@ export function useLogisticsStore() {
 
   // Actions
   const setPersona = (persona: Persona) => {
+    // Admin tab: go straight to dashboard without auth check
+    if (persona === 'admin') {
+      const adminUser: AppUser = state.authUser?.id === 'admin-ops'
+        ? state.authUser
+        : { id: 'admin-ops', email: 'ops@returnflow.demo', name: 'Platform Ops', role: 'customer' };
+      setState((prev) => ({
+        ...prev,
+        authUser: adminUser,
+        currentPersona: 'admin',
+        currentPage: 'admin-dashboard'
+      }));
+      return;
+    }
     // Signed-in users get their own role-specific workspace. Requesting the
     // other portal opens the sign-in sheet pre-targeted at that role, so
     // driver and retailer never share an identity.
     if (
       (persona === 'driver' || persona === 'customer') &&
       state.authUser &&
-      state.authUser.role !== persona
+      state.authUser.role !== persona &&
+      state.authUser.id !== 'admin-ops'
     ) {
       showToast(
         `Switching portals — sign in with your ${persona === 'driver' ? 'Driver' : 'Retailer'} account, or continue as the demo ${persona}.`,
@@ -283,16 +304,19 @@ export function useLogisticsStore() {
     showToast('Signed out successfully.', 'info');
   };
 
-  const continueAsDemoUser = (role: 'driver' | 'customer') => {
+  const continueAsDemoUser = (role: 'driver' | 'customer' | 'admin') => {
     const demoUser: AppUser =
       role === 'driver'
         ? { id: 'drv-rajesh', email: 'rajesh@returnflow.demo', name: 'Rajesh Kumar', phone: '+91 98490 23145', role: 'driver' }
+        : role === 'admin'
+        ? { id: 'admin-ops', email: 'ops@returnflow.demo', name: 'Platform Ops', role: 'customer' }
         : { id: 'cust-priya', email: 'priya@returnflow.demo', name: 'Priya Sharma', company: 'Apex Retail Networks Pvt Ltd', phone: '+91 94401 55678', role: 'customer' };
+    const targetPage = role === 'driver' ? 'driver-dashboard' : role === 'admin' ? 'admin-dashboard' : 'customer-dashboard';
     setState((prev) => ({
       ...prev,
       authUser: demoUser,
       currentPersona: role,
-      currentPage: role === 'driver' ? 'driver-dashboard' : 'customer-dashboard',
+      currentPage: targetPage,
       isAuthModalOpen: false
     }));
     showToast(`Continuing as demo ${role} (${demoUser.name}).`, 'info');
@@ -409,30 +433,32 @@ export function useLogisticsStore() {
         notes: loadData.specialInstructions
       });
 
-      // Real event: count live backhaul matches for the fresh load
-      const matchCount = getCandidateMatchesForLoad(state.trips, newLoad).length;
-
-      setState((prev) => ({
-        ...prev,
-        canonicalShipments: [canonical, ...prev.canonicalShipments],
-        loads: [newLoad, ...prev.loads.filter((l) => l.id !== newLoad.id)],
-        selectedLoadId: newLoad.id,
-        currentPage: 'matches',
-        notifications: [
-          {
-            id: `notif-${Date.now()}`,
-            title: matchCount > 0 ? `${matchCount} Backhaul Match${matchCount > 1 ? 'es' : ''} Found` : 'Consignment Posted — Scanning Corridor',
-            message:
-              matchCount > 0
-                ? `${matchCount} verified return trip${matchCount > 1 ? 's' : ''} on ${newLoad.corridor} can carry your ${newLoad.weight} ${newLoad.weightUnit} consignment.`
-                : `${newLoad.from} → ${newLoad.to} is now live. We'll alert you the moment a return truck matches your corridor.`,
-            timestamp: 'Just now',
-            type: 'match',
-            read: false
-          },
-          ...prev.notifications
-        ]
-      }));
+      // Bug 18 fix: read trips from setState's prev snapshot so we always use
+      // the freshest state even if refreshFromSupabase is concurrently in flight.
+      setState((prev) => {
+        const matchCount = getCandidateMatchesForLoad(prev.trips, newLoad).length;
+        return {
+          ...prev,
+          canonicalShipments: [canonical, ...prev.canonicalShipments],
+          loads: [newLoad, ...prev.loads.filter((l) => l.id !== newLoad.id)],
+          selectedLoadId: newLoad.id,
+          currentPage: 'matches',
+          notifications: [
+            {
+              id: `notif-${Date.now()}`,
+              title: matchCount > 0 ? `${matchCount} Backhaul Match${matchCount > 1 ? 'es' : ''} Found` : 'Consignment Posted — Scanning Corridor',
+              message:
+                matchCount > 0
+                  ? `${matchCount} verified return trip${matchCount > 1 ? 's' : ''} on ${newLoad.corridor} can carry your ${newLoad.weight} ${newLoad.weightUnit} consignment.`
+                  : `${newLoad.from} → ${newLoad.to} is now live. We'll alert you the moment a return truck matches your corridor.`,
+              timestamp: 'Just now',
+              type: 'match',
+              read: false
+            },
+            ...prev.notifications
+          ]
+        };
+      });
 
       showToast('Consignment load request posted successfully!', 'success');
     } catch (err) {
@@ -449,6 +475,274 @@ export function useLogisticsStore() {
     }));
   };
 
+  const createPendingBooking = async (match: MatchResult) => {
+    try {
+      const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
+      
+      // Safeguard: Re-validate that the trip has not departed and has sufficient capacity
+      const freshTrip = state.trips.find((t) => t.id === match.trip.id);
+      if (!freshTrip) {
+        showToast('Selected trip listing is no longer available.', 'warning');
+        return;
+      }
+      const spareCapacity = freshTrip.totalCapacityKg - freshTrip.bookedCapacityKg;
+      if (spareCapacity < weightKg) {
+        showToast(`Trip only has ${spareCapacity.toLocaleString()} Kg spare capacity remaining (requested: ${weightKg.toLocaleString()} Kg).`, 'warning');
+        return;
+      }
+
+      const bookingId = `book-${Date.now()}`;
+      const route = calculateDistanceAndDuration(match.load.from, match.load.to);
+      const pricing = calculateBackhaulPricing({
+        distanceKm: route.distanceKm,
+        weightKg,
+        vehicleType: match.trip.vehicleType,
+        corridorId: match.trip.corridor,
+        isReturnTrip: true,
+        retailerBudget: match.calculatedPrice
+      });
+
+      // Bug 6 fix: build route coordinates from the actual load origin/destination
+      // instead of hardcoding the HYD-WAR corridor waypoints.
+      const originLat = match.load.originCoords?.lat ?? route.originCoords?.lat ?? 17.3850;
+      const originLng = match.load.originCoords?.lng ?? route.originCoords?.lng ?? 78.4867;
+      const destLat   = match.load.destinationCoords?.lat ?? route.destinationCoords?.lat ?? 17.9689;
+      const destLng   = match.load.destinationCoords?.lng ?? route.destinationCoords?.lng ?? 79.5941;
+      // Build two intermediate waypoints by linear interpolation so the polyline
+      // renders meaningfully even without a real routing API response.
+      const midLat1 = originLat + (destLat - originLat) * 0.33;
+      const midLng1 = originLng + (destLng - originLng) * 0.33;
+      const midLat2 = originLat + (destLat - originLat) * 0.66;
+      const midLng2 = originLng + (destLng - originLng) * 0.66;
+      const routeCoordinates: [number, number][] = [
+        [originLat, originLng],
+        [midLat1, midLng1],
+        [midLat2, midLng2],
+        [destLat, destLng]
+      ];
+
+      const newBooking: Booking = {
+        id: bookingId,
+        tripId: match.trip.id,
+        loadId: match.load.id,
+        bookingDate: new Date().toISOString().split('T')[0],
+        driverId: match.trip.driverId,
+        driverName: match.trip.driverName,
+        driverRating: match.trip.driverRating,
+        driverPhone: match.trip.driverPhone,
+        driverAvatar: match.trip.driverAvatarText,
+        vehicleType: match.trip.vehicleType,
+        vehiclePlate: match.trip.vehiclePlate,
+        customerId: match.load.customerId,
+        customerName: match.load.customerName,
+        customerCompany: match.load.customerCompany,
+        customerPhone: match.load.customerPhone,
+        from: match.load.from,
+        to: match.load.to,
+        corridor: match.trip.corridor,
+        goodsType: match.load.goodsType,
+        weightKg: weightKg,
+        specialInstructions: match.load.specialInstructions,
+        basePrice: pricing.driverPayout,
+        platformFee: pricing.platformFee,
+        insuranceFee: 150,
+        totalPrice: pricing.retailerBudget + 150,
+        paymentMethod: 'UPI',
+        escrowStatus: 'Unfunded',
+        status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE,
+        estimatedPickup: `${match.trip.departureDate}, ${match.trip.departureTimeWindow.split('–')[0].trim()}`,
+        estimatedDelivery: `${match.trip.departureDate}, ~${route.durationMin >= 60 ? Math.round(route.durationMin / 60) + 'h ETA' : route.durationMin + 'min ETA'}`,
+        telemetry: {
+          currentLat: originLat,
+          currentLng: originLng,
+          currentSpeedKmh: 0,
+          currentLocationName: 'Origin Depot — Pending Dispatch',
+          nextStopName: 'En route to destination corridor',
+          etaMinutes: 240,
+          lastUpdated: 'Just now',
+          progressPercent: 0,
+          routeCoordinates,
+          checkpoints: [
+            { name: 'Origin Warehouse (Pickup)', lat: originLat, lng: originLng, time: '08:00 AM', completed: false },
+            { name: 'Corridor Checkpoint 1', lat: midLat1, lng: midLng1, time: '10:15 AM (Est.)', completed: false },
+            { name: 'Midway Weighbridge', lat: midLat2, lng: midLng2, time: '01:00 PM (Est.)', completed: false },
+            { name: 'Destination Drop Bay', lat: destLat, lng: destLng, time: '04:30 PM (Est.)', completed: false }
+          ]
+        }
+      };
+
+      await SupabaseService.insertPendingBooking(newBooking);
+
+      setState((prev) => ({
+        ...prev,
+        bookings: [newBooking, ...prev.bookings],
+        selectedBookingId: bookingId,
+        currentPage: 'customer-dashboard',
+        // Atomic capacity reservation in UI state
+        trips: prev.trips.map((t) =>
+          t.id === match.trip.id
+            ? { ...t, bookedCapacityKg: t.bookedCapacityKg + weightKg }
+            : t
+        ),
+        loads: prev.loads.map((l) =>
+          l.id === match.load.id
+            ? { ...l, status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE, matchedTripId: match.trip.id, bookingId: bookingId }
+            : l
+        ),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: 'Booking Request Sent — Awaiting Driver Acceptance',
+            message: `Reservation request for ${weightKg.toLocaleString()} Kg sent to ${match.trip.driverName}. No payment charged yet.`,
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          {
+            id: `notif-${Date.now() + 1}`,
+            title: 'New Backhaul Load Request (Action Required)',
+            message: `${match.load.customerName} requested ${weightKg.toLocaleString()} Kg capacity on your ${match.trip.from} → ${match.trip.to} route. Accept or Decline now.`,
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+
+      showToast('Booking request sent! Waiting for driver acceptance.', 'info');
+    } catch (err) {
+      console.error('Failed to create pending booking', err);
+      showToast(err instanceof Error ? err.message : 'Failed to book capacity.', 'warning');
+    }
+  };
+
+  const acceptBookingByDriver = async (bookingId: string) => {
+    try {
+      await SupabaseService.acceptBooking(bookingId);
+      const b = state.bookings.find((item) => item.id === bookingId);
+      setState((prev) => ({
+        ...prev,
+        bookings: prev.bookings.map((item) => item.id === bookingId ? { ...item, status: 'Awaiting Payment' as const } : item),
+        loads: prev.loads.map((l) => (b && l.id === b.loadId) ? { ...l, status: 'Awaiting Payment' as const } : l),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: 'Driver Accepted Your Booking Request!',
+            message: `${b?.driverName || 'Driver'} accepted your ${b?.from} → ${b?.to} load request. Click "Pay Securely" to lock funds in escrow.`,
+            timestamp: 'Just now',
+            type: 'payment',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+      showToast('Booking accepted! Shipper has been notified to pay.', 'success');
+    } catch (err) {
+      console.error('Failed to accept booking', err);
+      showToast('Could not accept booking request.', 'warning');
+    }
+  };
+
+  const declineBookingByDriver = async (bookingId: string) => {
+    try {
+      await SupabaseService.declineBooking(bookingId);
+      const b = state.bookings.find((item) => item.id === bookingId);
+      setState((prev) => ({
+        ...prev,
+        bookings: prev.bookings.map((item) => item.id === bookingId ? { ...item, status: 'Declined' as const } : item),
+        trips: prev.trips.map((t) => (b && t.id === b.tripId) ? { ...t, bookedCapacityKg: Math.max(0, t.bookedCapacityKg - b.weightKg) } : t),
+        loads: prev.loads.map((l) => (b && l.id === b.loadId) ? { ...l, status: 'Searching' as const, matchedTripId: undefined, bookingId: undefined } : l),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: 'Booking Request Declined',
+            message: `Driver declined booking #${bookingId}. Reserved capacity released and load returned to search.`,
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+      showToast('Booking declined. Spare capacity restored.', 'info');
+    } catch (err) {
+      console.error('Failed to decline booking', err);
+      showToast('Could not decline booking request.', 'warning');
+    }
+  };
+
+  const openPaymentForBooking = (bookingId: string) => {
+    const booking = state.bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      showToast('Booking not found.', 'warning');
+      return;
+    }
+    const trip = state.trips.find((t) => t.id === booking.tripId) || {
+      id: booking.tripId,
+      driverId: booking.driverId,
+      driverName: booking.driverName,
+      driverRating: booking.driverRating,
+      driverAvatarText: booking.driverAvatar,
+      driverPhone: booking.driverPhone,
+      vehicleType: booking.vehicleType,
+      vehiclePlate: booking.vehiclePlate,
+      from: booking.from,
+      to: booking.to,
+      corridor: booking.corridor,
+      departureDate: booking.estimatedPickup || 'Tomorrow',
+      departureTimeWindow: 'Morning',
+      totalCapacityKg: booking.weightKg * 2,
+      bookedCapacityKg: booking.weightKg,
+      preferredLoadType: booking.goodsType,
+      minPrice: booking.basePrice,
+      isReturnTrip: true,
+      status: 'active' as const,
+      bookedLoads: []
+    };
+    const load = state.loads.find((l) => l.id === booking.loadId) || {
+      id: booking.loadId,
+      customerId: booking.customerId,
+      customerName: booking.customerName,
+      customerCompany: booking.customerCompany,
+      customerPhone: booking.customerPhone,
+      from: booking.from,
+      to: booking.to,
+      corridor: booking.corridor,
+      date: booking.bookingDate,
+      timeWindow: 'Morning',
+      weight: booking.weightKg,
+      weightUnit: 'Kg' as const,
+      goodsType: booking.goodsType,
+      budget: booking.totalPrice - 150,
+      status: booking.status,
+      createdAt: 'Recently'
+    };
+
+    const match: MatchResult = {
+      id: `match-${booking.id}`,
+      trip,
+      load,
+      matchScore: 92,
+      routeOverlapScore: 95,
+      capacityScore: 90,
+      timeWindowScore: 88,
+      priceScore: 94,
+      calculatedPrice: booking.totalPrice - 150,
+      marketPrice: Math.round((booking.totalPrice - 150) * 1.5),
+      savingsPercentage: 33,
+      co2SavedKg: Math.round(booking.weightKg * 0.12),
+      explanation: 'Verified return backhaul match approved by driver.'
+    };
+
+    setState((prev) => ({
+      ...prev,
+      selectedBookingId: bookingId,
+      selectedMatch: match,
+      currentPage: 'booking-confirmation'
+    }));
+  };
+
   const confirmBookingAndProceedToPayment = (match: MatchResult, _paymentMethod: PaymentMethod) => {
     setState((prev) => ({
       ...prev,
@@ -457,153 +751,198 @@ export function useLogisticsStore() {
     }));
   };
 
-  const completePaymentAndStartTracking = async (match: MatchResult, paymentMethod: PaymentMethod) => {
+  const completePaymentAndStartTracking = async (bookingIdOrMatch: string | MatchResult, paymentMethod: PaymentMethod) => {
     try {
-      const bookingId = `book-${Date.now()}`;
-      const weightKg = match.load.weightUnit === 'CBM' ? match.load.weight * 250 : match.load.weight;
-    
-    const route = calculateDistanceAndDuration(match.load.from, match.load.to);
-    const pricing = calculateBackhaulPricing({
-      distanceKm: route.distanceKm,
-      weightKg,
-      vehicleType: match.trip.vehicleType,
-      corridorId: match.trip.corridor,
-      isReturnTrip: true,
-      retailerBudget: match.calculatedPrice
-    });
+      let bookingId = typeof bookingIdOrMatch === 'string' ? bookingIdOrMatch : state.selectedBookingId;
+      let targetBooking = state.bookings.find((b) => b.id === bookingId);
 
-    const newBooking: Booking = {
-      id: bookingId,
-      tripId: match.trip.id,
-      loadId: match.load.id,
-      bookingDate: new Date().toISOString().split('T')[0],
-      driverId: match.trip.driverId,
-      driverName: match.trip.driverName,
-      driverRating: match.trip.driverRating,
-      driverPhone: match.trip.driverPhone,
-      driverAvatar: match.trip.driverAvatarText,
-      vehicleType: match.trip.vehicleType,
-      vehiclePlate: match.trip.vehiclePlate,
-      customerId: match.load.customerId,
-      customerName: match.load.customerName,
-      customerCompany: match.load.customerCompany,
-      customerPhone: match.load.customerPhone,
-      from: match.load.from,
-      to: match.load.to,
-      corridor: match.trip.corridor,
-      goodsType: match.load.goodsType,
-      weightKg: weightKg,
-      specialInstructions: match.load.specialInstructions,
-      basePrice: pricing.driverPayout,
-      platformFee: pricing.platformFee,
-      insuranceFee: 150,
-      totalPrice: pricing.retailerBudget + 150,
-      paymentMethod: paymentMethod,
-      escrowStatus: 'Held in Escrow',
-      status: 'Booked',
-      estimatedPickup: 'Tomorrow, 08:00 AM',
-      estimatedDelivery: 'Tomorrow, 06:00 PM',
-      telemetry: {
-        currentLat: 17.3984,
-        currentLng: 78.5583,
-        currentSpeedKmh: 0,
-        currentLocationName: 'Pickup Hub — Preparing for loading',
-        nextStopName: 'En route to destination corridor',
-        etaMinutes: 240,
-        lastUpdated: 'Just now',
-        progressPercent: 10,
-        routeCoordinates: [
-          [17.3984, 78.5583],
-          [17.5108, 78.8891],
-          [17.7277, 79.1558],
-          [17.9784, 79.5255],
-          [17.9689, 79.5941]
-        ],
-        checkpoints: [
-          { name: 'Origin Warehouse (Pickup)', lat: 17.3984, lng: 78.5583, time: '08:00 AM', completed: true },
-          { name: 'Corridor Checkpoint 1', lat: 17.5108, lng: 78.8891, time: '10:15 AM (Est.)', completed: false },
-          { name: 'Midway Fuel & Weighbridge', lat: 17.7277, lng: 79.1558, time: '01:00 PM (Est.)', completed: false },
-          { name: 'Destination Unloading Bay (Drop)', lat: 17.9689, lng: 79.5941, time: '04:30 PM (Est.)', completed: false }
-        ]
+      if (!targetBooking && typeof bookingIdOrMatch !== 'string') {
+        const match = bookingIdOrMatch;
+        targetBooking = state.bookings.find((b) => b.loadId === match.load.id || (b.tripId === match.trip.id && b.from === match.load.from));
       }
-    };
 
-    const newEarningsRecord: EarningsRecord = {
-      id: `earn-${Date.now()}`,
-      date: 'Today',
-      route: `${match.load.from} → ${match.load.to} (Return leg)`,
-      corridor: match.trip.corridor,
-      loadsCount: 1,
-      weightKg: weightKg,
-      amount: pricing.driverPayout,
-      escrowFeeDeducted: Math.round(pricing.driverPayout * 0.025),
-      status: 'In Escrow',
-      payoutReference: `ESCROW-${bookingId.toUpperCase()}`
-    };
+      if (!targetBooking) {
+        showToast('Booking reference not found.', 'warning');
+        return;
+      }
 
-    await SupabaseService.insertBooking(newBooking, newEarningsRecord);
+      bookingId = targetBooking.id;
 
-    setState((prev) => ({
-      ...prev,
-      bookings: [newBooking, ...prev.bookings],
-      earnings: [newEarningsRecord, ...prev.earnings],
-      selectedBookingId: bookingId,
-      currentPage: 'tracking',
-      notifications: [
-        {
-          id: `notif-${Date.now()}`,
-          title: 'Escrow Secured & Booking Confirmed',
-          message: `Booking #${bookingId} confirmed with ${match.trip.driverName}. Live GPS tracking activated!`,
-          timestamp: 'Just now',
-          type: 'tracking',
-          read: false
-        },
-        ...prev.notifications
-      ]
-    }));
+      // Idempotency: skip if already funded
+      if (targetBooking.escrowStatus === 'Held in Escrow') {
+        setState((prev) => ({ ...prev, selectedBookingId: bookingId, currentPage: 'tracking' }));
+        return;
+      }
 
-    showToast('Payment held in secure escrow! Tracking activated.', 'success');
+      const newEarningsRecord: EarningsRecord = {
+        id: `earn-${Date.now()}`,
+        date: 'Today',
+        route: `${targetBooking.from} → ${targetBooking.to} (Return leg)`,
+        corridor: targetBooking.corridor,
+        loadsCount: 1,
+        weightKg: targetBooking.weightKg,
+        amount: targetBooking.basePrice,
+        escrowFeeDeducted: Math.round(targetBooking.basePrice * 0.025),
+        status: 'In Escrow',
+        payoutReference: `ESCROW-${bookingId.toUpperCase()}`
+      };
+
+      await SupabaseService.payBooking(bookingId, paymentMethod, newEarningsRecord);
+
+      setState((prev) => ({
+        ...prev,
+        selectedBookingId: bookingId,
+        currentPage: 'tracking',
+        bookings: prev.bookings.map((b) =>
+          b.id === bookingId
+            // Bug 4 fix: status should be 'Booked' after payment, not 'In Transit'.
+            // DB also writes BOOKING_STATUS.BOOKED; keep in-memory state consistent.
+            ? { ...b, status: 'Booked' as const, escrowStatus: 'Held in Escrow' as const, paymentMethod }
+            : b
+        ),
+        earnings: [newEarningsRecord, ...prev.earnings],
+        loads: prev.loads.map((l) =>
+          l.id === targetBooking!.loadId
+            ? { ...l, status: 'Booked' as const }
+            : l
+        ),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: 'Escrow Locked & Tracking Active',
+            message: `₹${targetBooking!.totalPrice.toLocaleString()} secured in RBI-compliant escrow. Driver dispatch confirmed for ${targetBooking!.from} → ${targetBooking!.to}.`,
+            timestamp: 'Just now',
+            type: 'payment',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+
+      showToast('Payment held in secure escrow! Tracking activated.', 'success');
     } catch (err) {
-      console.error('Failed to complete booking payment', err);
-      showToast('Payment failed. Please try again.', 'warning');
+      console.error('Failed to complete payment', err);
+      showToast('Payment processing failed. Please try again.', 'warning');
+    }
+  };
+
+  const confirmDelivery = async (bookingId: string, role: 'driver' | 'customer') => {
+    try {
+      const updatedBookings = await SupabaseService.confirmDelivery(bookingId, role);
+      const b = updatedBookings.find((item) => item.id === bookingId);
+      const isFullySettled = b?.status === 'Delivered';
+
+      setState((prev) => ({
+        ...prev,
+        bookings: updatedBookings,
+        loads: prev.loads.map((l) => (b && l.id === b.loadId && isFullySettled) ? { ...l, status: 'Delivered' as const } : l),
+        earnings: prev.earnings.map((e) =>
+          (b && isFullySettled && (e.payoutReference.includes(bookingId.toUpperCase()) || e.route.includes(b.from)))
+            ? { ...e, status: 'Settled' as const }
+            : e
+        ),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: isFullySettled ? 'Delivery Verified — Escrow Settled' : (role === 'driver' ? 'Driver Confirmed Delivery' : 'Retailer Confirmed Receipt'),
+            message: isFullySettled
+              ? `Both confirmations received! Escrow payout of ₹${b ? Math.round(b.basePrice * 0.975).toLocaleString() : ''} released to ${b?.driverName}.`
+              : (role === 'driver'
+                ? `Driver ${b?.driverName || ''} marked delivered. Waiting for retailer receipt confirmation before escrow payout.`
+                : 'Retailer confirmed receipt. Waiting for driver delivery confirmation before escrow payout.'),
+            timestamp: 'Just now',
+            type: isFullySettled ? 'payment' : 'tracking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+
+      if (isFullySettled) {
+        showToast('Both confirmations recorded! Escrow funds released to driver.', 'success');
+      } else {
+        showToast(
+          role === 'driver'
+            ? 'Driver confirmation recorded. Waiting for retailer receipt confirmation.'
+            : 'Receipt confirmation recorded. Waiting for driver confirmation.',
+          'info'
+        );
+      }
+    } catch (err) {
+      console.error('Failed to confirm delivery', err);
+      showToast('Could not record delivery confirmation.', 'warning');
+    }
+  };
+
+  const cancelBookingWithRefund = async (bookingId: string, reason?: string) => {
+    try {
+      const cancelledBy = state.currentPersona === 'driver' ? 'driver' : 'customer';
+      await SupabaseService.cancelBooking(bookingId, cancelledBy, reason);
+      const b = state.bookings.find((item) => item.id === bookingId);
+      const wasFunded = b?.escrowStatus === 'Held in Escrow';
+
+      setState((prev) => ({
+        ...prev,
+        bookings: prev.bookings.map((item) =>
+          item.id === bookingId
+            ? {
+                ...item,
+                status: 'Cancelled' as const,
+                escrowStatus: wasFunded ? ('Refunded' as const) : ('Unfunded' as const),
+                cancelledAt: new Date().toISOString(),
+                cancelledBy,
+                cancellationReason: reason
+              }
+            : item
+        ),
+        trips: prev.trips.map((t) => (b && t.id === b.tripId) ? { ...t, bookedCapacityKg: Math.max(0, t.bookedCapacityKg - b.weightKg) } : t),
+        loads: prev.loads.map((l) => (b && l.id === b.loadId) ? { ...l, status: wasFunded ? ('Cancelled' as const) : ('Searching' as const), matchedTripId: undefined, bookingId: undefined } : l),
+        earnings: prev.earnings.map((e) =>
+          (b && wasFunded && (e.payoutReference.includes(bookingId.toUpperCase()) || e.route.includes(b.from)))
+            ? { ...e, status: 'Refunded' as const }
+            : e
+        ),
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: wasFunded ? 'Booking Cancelled — Escrow Refunded' : 'Booking Request Cancelled',
+            message: wasFunded
+              ? `Booking #${bookingId} was cancelled. Full refund of ₹${b?.totalPrice.toLocaleString()} initiated to shipper.`
+              : `Booking request #${bookingId} was cancelled. Capacity restored.`,
+            timestamp: 'Just now',
+            type: 'booking',
+            read: false
+          },
+          ...prev.notifications
+        ]
+      }));
+
+      showToast(wasFunded ? 'Booking cancelled. Escrow refund issued to retailer.' : 'Booking request cancelled.', 'info');
+    } catch (err) {
+      console.error('Failed to cancel booking', err);
+      showToast('Could not cancel booking.', 'warning');
     }
   };
 
   const advanceBookingStatus = async (bookingId: string) => {
     try {
       const updatedBookings = await SupabaseService.advanceBookingStatus(bookingId);
-      const delivered = updatedBookings.find((b) => b.id === bookingId);
-      const driverPayout = delivered ? Math.round(delivered.basePrice * 0.975) : 0;
+      const b = updatedBookings.find((item) => item.id === bookingId);
 
       setState((prev) => ({
         ...prev,
         bookings: updatedBookings,
-        notifications:
-          delivered?.status === 'Delivered'
-            ? [
-                {
-                  id: `notif-${Date.now()}`,
-                  title: 'Delivered — Escrow Settled',
-                  message: `Consignment delivered at ${delivered.to}. ₹${driverPayout.toLocaleString()} released to driver ${delivered.driverName} after the 2.5% escrow fee.`,
-                  timestamp: 'Just now',
-                  type: 'payment',
-                  read: false
-                },
-                ...prev.notifications
-              ]
-            : delivered?.status === 'In Transit'
-              ? [
-                  {
-                    id: `notif-${Date.now()}`,
-                    title: 'Shipment In Transit',
-                    message: `${delivered.driverName} picked up your consignment from ${delivered.from}. Live GPS tracking active on the ${delivered.corridor} corridor.`,
-                    timestamp: 'Just now',
-                    type: 'tracking',
-                    read: false
-                  },
-                  ...prev.notifications
-                ]
-              : prev.notifications
+        notifications: [
+          {
+            id: `notif-${Date.now()}`,
+            title: `Shipment Status: ${b?.status}`,
+            message: `${b?.driverName} is ${b?.status.toLowerCase()} on the ${b?.corridor} corridor.`,
+            timestamp: 'Just now',
+            type: 'tracking',
+            read: false
+          },
+          ...prev.notifications
+        ]
       }));
     } catch (err) {
       console.error('Failed to advance booking status', err);
@@ -611,8 +950,17 @@ export function useLogisticsStore() {
     }
   };
 
-  const sendChatMessage = (text: string) => {
-    if (!text.trim()) return;
+  // Bug 7+25 fix: proper immutable update instead of direct object mutation
+  const markNotificationsRead = (ids?: string[]) => {
+    setState((prev) => ({
+      ...prev,
+      notifications: prev.notifications.map((n) =>
+        !ids || ids.includes(n.id) ? { ...n, read: true } : n
+      )
+    }));
+  };
+
+  const sendChatMessage = (text: string) => {    if (!text.trim()) return;
     const isDriver = state.currentPersona === 'driver';
     const u = state.authUser;
     const senderName = u?.name || (isDriver ? 'Rajesh Kumar' : 'Priya Sharma');
@@ -698,11 +1046,12 @@ export function useLogisticsStore() {
     }
   };
 
-  const resetDemoState = () => {
+  const resetDemoState = async () => {
     try {
-      SupabaseService.resetToSeed();
+      // Bug 9 fix: await the full seed so refreshFromSupabase reads populated tables.
+      await SupabaseService.resetToSeed();
       localStorage.removeItem(UI_PREFS_KEY);
-      refreshFromSupabase();
+      await refreshFromSupabase();
       showToast('Platform demo data restored successfully.', 'info');
     } catch (err) {
       console.error('Failed to reset demo state', err);
@@ -722,8 +1071,14 @@ export function useLogisticsStore() {
     addLoadRequest,
     cancelLoad,
     selectMatchForBooking,
+    createPendingBooking,
+    acceptBookingByDriver,
+    declineBookingByDriver,
+    openPaymentForBooking,
     confirmBookingAndProceedToPayment,
     completePaymentAndStartTracking,
+    confirmDelivery,
+    cancelBookingWithRefund,
     advanceBookingStatus,
     sendChatMessage,
     toggleMatchingEngineModal,
@@ -738,6 +1093,7 @@ export function useLogisticsStore() {
     registerUser,
     loginUser,
     logoutUser,
-    continueAsDemoUser
+    continueAsDemoUser,
+    markNotificationsRead
   };
 }

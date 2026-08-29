@@ -8,7 +8,7 @@ interface AuthModalProps {
   onClose: () => void;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: (input: { email: string; password: string; name: string; phone?: string; company?: string; role: 'driver' | 'customer' }) => Promise<void>;
-  onDemoContinue: (role: 'driver' | 'customer') => void;
+  onDemoContinue: (role: 'driver' | 'customer' | 'admin') => void;
 }
 
 type Mode = 'signin' | 'signup';

@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { Activity, IndianRupee, Truck, Package, Leaf, TrendingUp } from 'lucide-react';
 import { Trip, LoadRequest, Booking } from '../../types/logistics';
+import { haversineDistanceKm } from '../../services/routingEngine';
 
 interface AdminDashboardProps {
   trips: Trip[];
@@ -36,10 +37,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ trips, loads, bo
   const takeRate = gmv > 0 ? ((platformRevenue / gmv) * 100).toFixed(1) : '0.0';
 
   // CO2 avoided from completed + in-progress bookings
+  // Uses actual origin/destination coordinates from the trip for real distance
   const co2SavedKg = Math.round(
     bookings.reduce((sum, b) => {
-      const approxKm = b.corridor.includes('BLR') ? 570 : b.corridor.includes('WAR') ? 150 : 280;
-      return sum + (b.weightKg / 1000) * approxKm * AVOIDED_EMISSION_KG_PER_TON_KM;
+      const trip = trips.find(t => t.id === b.tripId);
+      let distKm = 280; // fallback
+      if (trip?.originCoords && trip?.destinationCoords) {
+        distKm = Math.round(haversineDistanceKm(trip.originCoords, trip.destinationCoords) * 1.25);
+      } else {
+        // fallback: estimate by corridor id
+        distKm = b.corridor.includes('BLR') ? 570 : b.corridor.includes('WAR') ? 148 : 280;
+      }
+      return sum + (b.weightKg / 1000) * distKm * AVOIDED_EMISSION_KG_PER_TON_KM;
     }, 0)
   );
 

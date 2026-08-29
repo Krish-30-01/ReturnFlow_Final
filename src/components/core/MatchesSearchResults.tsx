@@ -18,8 +18,8 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
   onBack
 }) => {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
-  const [minScore, setMinScore] = useState(40);
-  const [maxPrice, setMaxPrice] = useState(150000);
+  const [minScore, setMinScore] = useState(50);   // match slider min="50"
+  const [maxPrice, setMaxPrice] = useState(30000); // match slider max="30000"
   const [expandedScoreCard, setExpandedScoreCard] = useState<string | null>(null);
 
   const filteredMatches = matches.filter(
@@ -325,7 +325,7 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                         { label: 'Route Overlap (35%)', value: match.routeOverlapScore, icon: '🛣️' },
                         { label: 'Capacity Fit (25%)', value: match.capacityScore, icon: '📦' },
                         { label: 'Schedule Alignment (20%)', value: match.timeWindowScore, icon: '⏱️' },
-                        { label: 'Detour Efficiency (15%)', value: match.priceScore, icon: '📍' },
+                        { label: 'Price Compatibility (15%)', value: match.priceScore, icon: '💰' },
                       ].map((dim) => (
                         <div
                           key={dim.label}

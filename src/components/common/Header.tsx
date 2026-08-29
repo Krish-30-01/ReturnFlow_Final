@@ -171,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
                     textTransform: 'uppercase'
                   }}
                 >
-                  AI
+                  BETA
                 </span>
               </div>
               <span
@@ -259,8 +259,8 @@ export const Header: React.FC<HeaderProps> = ({
                 isRealtimeConnecting
                   ? 'Connecting to Supabase Realtime…'
                   : isRealtimeConnected
-                  ? 'Supabase Realtime Sync: Connected'
-                  : 'Offline Mode: Local Demo Data'
+                  ? 'Real-time sync active'
+                  : 'Offline — no connection'
               }
               style={{
                 display: 'flex',
