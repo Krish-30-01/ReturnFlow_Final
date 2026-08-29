@@ -28,6 +28,7 @@ interface HeaderProps {
   unreadMessagesCount: number;
   authUser?: AppUser | null;
   isRealtimeConnected?: boolean;
+  isRealtimeConnecting?: boolean;
   onSelectPersona: (persona: Persona) => void;
   onNavigate: (page: string) => void;
   onToggleDarkMode: () => void;
@@ -36,6 +37,7 @@ interface HeaderProps {
   onResetDemo: () => void;
   onOpenAuth: () => void;
   onSignOut: () => void;
+  onMarkNotificationsRead: (ids?: string[]) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   unreadMessagesCount,
   authUser,
   isRealtimeConnected = false,
+  isRealtimeConnecting = false,
   onSelectPersona,
   onNavigate,
   onToggleDarkMode,
@@ -53,7 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenChat,
   onResetDemo,
   onOpenAuth,
-  onSignOut
+  onSignOut,
+  onMarkNotificationsRead
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -249,40 +253,62 @@ export const Header: React.FC<HeaderProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           {/* Status & Engine Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {/* Live Indicator */}
+            {/* Live Indicator — Bug 2 fix: shows Connecting… during initial handshake */}
             <div
-              title={isRealtimeConnected ? 'Supabase Realtime Sync: Connected' : 'Offline Mode: Local Demo Data'}
+              title={
+                isRealtimeConnecting
+                  ? 'Connecting to Supabase Realtime…'
+                  : isRealtimeConnected
+                  ? 'Supabase Realtime Sync: Connected'
+                  : 'Offline Mode: Local Demo Data'
+              }
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '5px',
                 padding: '4px 8px',
                 borderRadius: '6px',
-                backgroundColor: isRealtimeConnected ? 'rgba(22, 163, 74, 0.08)' : 'var(--bg-secondary)',
+                backgroundColor: isRealtimeConnected
+                  ? 'rgba(22, 163, 74, 0.08)'
+                  : isRealtimeConnecting
+                  ? 'rgba(186,117,23,0.08)'
+                  : 'var(--bg-secondary)',
                 fontSize: '0.6875rem',
                 fontWeight: 600,
-                color: isRealtimeConnected ? '#16A34A' : 'var(--text-tertiary)',
+                color: isRealtimeConnected
+                  ? '#16A34A'
+                  : isRealtimeConnecting
+                  ? 'var(--brand-amber)'
+                  : 'var(--text-tertiary)',
                 border: '1px solid',
-                borderColor: isRealtimeConnected ? 'rgba(22, 163, 74, 0.2)' : 'var(--border-color)',
+                borderColor: isRealtimeConnected
+                  ? 'rgba(22, 163, 74, 0.2)'
+                  : isRealtimeConnecting
+                  ? 'rgba(186,117,23,0.25)'
+                  : 'var(--border-color)',
                 cursor: 'default'
               }}
             >
               {isRealtimeConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
               <span className="sync-label" style={{ letterSpacing: '0.3px' }}>
-                {isRealtimeConnected ? 'Live' : 'Offline'}
+                {isRealtimeConnecting ? 'Connecting…' : isRealtimeConnected ? 'Live' : 'Offline'}
               </span>
               <span
                 style={{
                   width: '6px',
                   height: '6px',
                   borderRadius: '50%',
-                  backgroundColor: isRealtimeConnected ? '#16A34A' : 'var(--text-tertiary)',
+                  backgroundColor: isRealtimeConnected
+                    ? '#16A34A'
+                    : isRealtimeConnecting
+                    ? 'var(--brand-amber)'
+                    : 'var(--text-tertiary)',
                   boxShadow: isRealtimeConnected ? '0 0 0 2px rgba(22,163,74,0.2)' : 'none'
                 }}
               />
             </div>
 
-            {/* AI Match Engine Modal Button */}
+            {/* Match Engine Modal Button */}
             <button
               onClick={onOpenMatchingEngine}
               title="Open Bidirectional Matching Engine Explainer"
@@ -302,7 +328,7 @@ export const Header: React.FC<HeaderProps> = ({
               }}
             >
               <Cpu size={14} />
-              <span>AI Matcher</span>
+              <span>Match Engine</span>
             </button>
           </div>
 
@@ -430,7 +456,10 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                     <button
                       onClick={() => {
-                        notifications.forEach(n => { n.read = true; });
+                        // Bug 7+25 fix: use callback instead of directly mutating
+                        // notification objects (which corrupts the module-level
+                        // INITIAL_NOTIFICATIONS constant and skips React re-render).
+                        onMarkNotificationsRead();
                         setIsNotifOpen(false);
                       }}
                       style={{ background: 'none', border: 'none', color: 'var(--brand-teal)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
@@ -450,7 +479,8 @@ export const Header: React.FC<HeaderProps> = ({
                         <div
                           key={n.id}
                           onClick={() => {
-                            n.read = true;
+                            // Bug 7 fix: use callback instead of direct object mutation
+                            onMarkNotificationsRead([n.id]);
                             if (n.type === 'match') onNavigate('matches');
                             if (n.type === 'payment') onNavigate('driver-earnings');
                             if (n.type === 'tracking') onNavigate('tracking');

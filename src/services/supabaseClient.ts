@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { calculateBackhaulPricing } from './pricingEngine';
 import { calculateDistanceAndDuration } from './routingEngine';
-import { Trip, LoadRequest, Booking, EarningsRecord, ShipmentStatus } from '../types/logistics';
+import { Trip, LoadRequest, Booking, EarningsRecord, ShipmentStatus, PaymentMethod, BOOKING_STATUS } from '../types/logistics';
 
 // ---------------------------------------------------------------------------
 // Live vs Demo backend detection
@@ -10,11 +10,19 @@ import { Trip, LoadRequest, Booking, EarningsRecord, ShipmentStatus } from '../t
 // localStorage-backed demo database seeded with realistic sample data.
 // ---------------------------------------------------------------------------
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
-const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+const envObj = (typeof import.meta !== 'undefined' && import.meta?.env) || (typeof globalThis !== 'undefined' && (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env) || {};
+// Bug 1 fix: never fall back to hardcoded credentials — if env vars are absent the app
+// runs in demo mode.  The real keys belong only in .env (which is gitignored).
+const SUPABASE_URL = (envObj.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_ANON_KEY = (envObj.VITE_SUPABASE_ANON_KEY || '').trim();
 
+// Bug 2 fix: isLiveBackend is only true when BOTH env vars are actually provided,
+// so demo mode works correctly when they are absent.
 export const isLiveBackend =
-  /^https:\/\/[a-z0-9-]+\.supabase\.(co|in|net)\/?$/i.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 20;
+  SUPABASE_URL.length > 0 &&
+  SUPABASE_ANON_KEY.length > 0 &&
+  /^https:\/\/[a-z0-9-]+\.supabase\.(co|in|net)\/?$/i.test(SUPABASE_URL) &&
+  SUPABASE_ANON_KEY.length > 20;
 
 // HMR-safe singleton: cache the client on globalThis so Vite hot-reloads
 // reuse the same instance instead of spawning duplicate GoTrueClient instances.
@@ -22,7 +30,7 @@ const globalForSupabase = globalThis as unknown as { __returnflowSupabaseClient?
 
 export const supabase: SupabaseClient | null = isLiveBackend
   ? (globalForSupabase.__returnflowSupabaseClient ??= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
+      auth: { persistSession: true },
       realtime: { params: { eventsPerSecond: 10 } }
     }))
   : null;
@@ -55,6 +63,7 @@ interface DbTripRow {
   preferred_load_type?: string | null;
   status: string;
   notes?: string | null;
+  created_at?: string;
 }
 
 interface DbLoadRow {
@@ -80,6 +89,7 @@ interface DbLoadRow {
   status: string;
   matched_trip_id: string | null;
   booking_id: string | null;
+  created_at?: string;
 }
 
 interface DbBookingRow {
@@ -114,6 +124,14 @@ interface DbBookingRow {
   estimated_pickup?: string | null;
   estimated_delivery?: string | null;
   telemetry: Booking['telemetry'];
+  driver_confirmed_delivery?: boolean | null;
+  retailer_confirmed_delivery?: boolean | null;
+  driver_confirmed_at?: string | null;
+  retailer_confirmed_at?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
+  created_at?: string;
 }
 
 interface DbEarningRow {
@@ -221,7 +239,14 @@ function mapBookingRow(b: DbBookingRow): Booking {
     status: b.status as ShipmentStatus,
     estimatedPickup: b.estimated_pickup || '',
     estimatedDelivery: b.estimated_delivery || '',
-    telemetry: b.telemetry
+    telemetry: b.telemetry,
+    driverConfirmedDelivery: !!b.driver_confirmed_delivery,
+    retailerConfirmedDelivery: !!b.retailer_confirmed_delivery,
+    driverConfirmedAt: b.driver_confirmed_at || undefined,
+    retailerConfirmedAt: b.retailer_confirmed_at || undefined,
+    cancelledAt: b.cancelled_at || undefined,
+    cancelledBy: (b.cancelled_by as Booking['cancelledBy']) || undefined,
+    cancellationReason: b.cancellation_reason || undefined
   };
 }
 
@@ -295,7 +320,7 @@ function mapEarningRow(e: DbEarningRow): EarningsRecord {
 // Seed data with realistic commercial freight pricing and verified coordinates
 // ---------------------------------------------------------------------------
 
-const SEED_TRIPS = [
+const SEED_TRIPS: DbTripRow[] = [
   {
     id: 'trip-101',
     driver_id: 'drv-rajesh',
@@ -348,7 +373,7 @@ const SEED_TRIPS = [
   }
 ];
 
-const SEED_LOADS = [
+const SEED_LOADS: DbLoadRow[] = [
   {
     id: 'load-201',
     retailer_id: 'cust-priya',
@@ -369,9 +394,9 @@ const SEED_LOADS = [
     time_window: 'Morning (07:00 AM – 11:00 AM)',
     departure_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     special_instructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
-    status: 'Searching',
-    matched_trip_id: null,
-    booking_id: null,
+    status: 'Pending Driver Acceptance',
+    matched_trip_id: 'trip-101',
+    booking_id: 'book-302',
     created_at: new Date(Date.now() - 600000).toISOString()
   },
   {
@@ -456,6 +481,61 @@ const SEED_EARNINGS: EarningsRecord[] = [
 
 const SEED_BOOKINGS: Booking[] = [
   {
+    id: 'book-302',
+    tripId: 'trip-101',
+    loadId: 'load-201',
+    bookingDate: new Date().toISOString().split('T')[0],
+    driverId: 'drv-rajesh',
+    driverName: 'Rajesh Kumar',
+    driverRating: 4.9,
+    driverPhone: '+91 98490 23145',
+    driverAvatar: 'RK',
+    vehicleType: 'TATA 407 (4-Ton Commercial)',
+    vehiclePlate: 'TS-09-UB-4421',
+    customerId: 'cust-priya',
+    customerName: 'Priya Sharma',
+    customerCompany: 'Apex Retail Networks Pvt Ltd',
+    customerPhone: '+91 94401 55678',
+    from: 'Hyderabad (Uppal)',
+    to: 'Warangal Industrial Zone',
+    corridor: 'HYD-WAR',
+    goodsType: 'Furniture & Display Fixtures',
+    weightKg: 400,
+    specialInstructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
+    basePrice: 1500,
+    platformFee: 130,
+    insuranceFee: 150,
+    totalPrice: 1780,
+    paymentMethod: 'UPI',
+    escrowStatus: 'Unfunded',
+    status: 'Pending Driver Acceptance',
+    estimatedPickup: 'Tomorrow, 08:00 AM',
+    estimatedDelivery: 'Tomorrow, 06:00 PM',
+    telemetry: {
+      currentLat: 17.3984,
+      currentLng: 78.5583,
+      currentSpeedKmh: 0,
+      currentLocationName: 'Origin Depot — Pending Dispatch',
+      nextStopName: 'En route to destination corridor',
+      etaMinutes: 240,
+      lastUpdated: 'Just now',
+      progressPercent: 0,
+      routeCoordinates: [
+        [17.3984, 78.5583],
+        [17.5108, 78.8891],
+        [17.7277, 79.1558],
+        [17.9784, 79.5255],
+        [17.9689, 79.5941]
+      ],
+      checkpoints: [
+        { name: 'Origin Warehouse (Pickup)', lat: 17.3984, lng: 78.5583, time: '08:00 AM', completed: false },
+        { name: 'Corridor Checkpoint 1', lat: 17.5108, lng: 78.8891, time: '10:15 AM (Est.)', completed: false },
+        { name: 'Midway Weighbridge', lat: 17.7277, lng: 79.1558, time: '01:00 PM (Est.)', completed: false },
+        { name: 'Destination Drop Bay', lat: 17.9689, lng: 79.5941, time: '04:30 PM (Est.)', completed: false }
+      ]
+    }
+  },
+  {
     id: 'book-301',
     tripId: 'trip-102',
     loadId: 'load-202',
@@ -493,7 +573,7 @@ const SEED_BOOKINGS: Booking[] = [
       currentLocationName: 'Kurnool Bypass Highway (NH44)',
       nextStopName: 'Anantapur Tollway Hub (142 km remaining)',
       etaMinutes: 185,
-      lastUpdated: 'Just now (Live GPS 4G)',
+      lastUpdated: 'Just now (Simulated)',
       progressPercent: 54,
       routeCoordinates: [
         [17.2403, 78.4294],
@@ -529,11 +609,11 @@ try {
   console.warn('BroadcastChannel not supported', e);
 }
 
-const DB_STORAGE_KEY = 'returnflow_supabase_db_v5';
+const DB_STORAGE_KEY = 'returnflow_supabase_db_v6';
 
 interface DatabaseSchema {
-  trips: typeof SEED_TRIPS;
-  load_requests: typeof SEED_LOADS;
+  trips: DbTripRow[];
+  load_requests: DbLoadRow[];
   earnings: EarningsRecord[];
   bookings: Booking[];
 }
@@ -645,6 +725,8 @@ function computeAdvancedBooking(b: Booking): Booking {
     progress = 65;
     speed = 58;
   } else if (b.status === 'In Transit') {
+    // Bug 5 fix: handle the In Transit → Delivered transition so the
+    // "Simulate Next Transit Stage" button is never a no-op.
     nextStatus = 'Delivered';
     progress = 100;
     speed = 0;
@@ -660,7 +742,6 @@ function computeAdvancedBooking(b: Booking): Booking {
   return {
     ...b,
     status: nextStatus,
-    escrowStatus: nextStatus === 'Delivered' ? 'Settled to Driver' : b.escrowStatus,
     telemetry: {
       ...b.telemetry,
       progressPercent: progress,
@@ -698,8 +779,9 @@ export const SupabaseService = {
         void supabase.removeChannel(channel);
       };
     } else {
-      // Demo backend is always "connected" via BroadcastChannel
-      onStatus?.(true);
+      // Bug 15 fix: demo backend uses BroadcastChannel (tab-local only, no Supabase).
+      // Report connected=false so the header shows the honest "Offline" indicator.
+      onStatus?.(false);
     }
 
     return () => {
@@ -980,63 +1062,369 @@ export const SupabaseService = {
     return loadDatabase().bookings;
   },
 
-  async insertBooking(newBooking: Booking, newEarnings: EarningsRecord): Promise<void> {
+  async insertPendingBooking(newBooking: Booking): Promise<void> {
     if (supabase) {
       try {
-        const { error: bookingError } = await supabase.from('bookings').insert(bookingToDb(newBooking));
-        if (bookingError) throw bookingError;
-
-        const { error: earningsError } = await supabase.from('earnings').insert(earningToDb(newEarnings));
-        if (earningsError) throw earningsError;
-
-        const { error: loadUpdateError } = await supabase
-          .from('load_requests')
-          .update({ status: 'Booked', matched_trip_id: newBooking.tripId, booking_id: newBooking.id })
-          .eq('id', newBooking.loadId);
-        if (loadUpdateError) throw loadUpdateError;
-
+        // Re-validate trip capacity atomically before reserving
         const { data: tripData, error: tripFetchError } = await supabase
           .from('trips')
-          .select('booked_capacity')
+          .select('capacity, booked_capacity, status')
           .eq('id', newBooking.tripId)
           .single();
         if (tripFetchError) throw tripFetchError;
 
-        const currentBooked = (tripData as { booked_capacity: number }).booked_capacity || 0;
+        const currentBooked = (tripData as { booked_capacity: number; capacity: number }).booked_capacity || 0;
+        const totalCap = (tripData as { booked_capacity: number; capacity: number }).capacity || 0;
+        if (currentBooked + newBooking.weightKg > totalCap) {
+          throw new Error(`Insufficient spare capacity! Remaining: ${totalCap - currentBooked} Kg, Requested: ${newBooking.weightKg} Kg`);
+        }
+
+        // Atomically reserve capacity
         const { error: tripUpdateError } = await supabase
           .from('trips')
           .update({ booked_capacity: currentBooked + newBooking.weightKg })
           .eq('id', newBooking.tripId);
         if (tripUpdateError) throw tripUpdateError;
 
+        const { error: bookingError } = await supabase.from('bookings').insert(bookingToDb({
+          ...newBooking,
+          status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE,
+          escrowStatus: 'Unfunded'
+        }));
+        if (bookingError) throw bookingError;
+
+        const { error: loadUpdateError } = await supabase
+          .from('load_requests')
+          .update({ status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE, matched_trip_id: newBooking.tripId, booking_id: newBooking.id })
+          .eq('id', newBooking.loadId);
+        if (loadUpdateError) throw loadUpdateError;
+
         notifyRealtime('bookings', 'INSERT', newBooking);
         return;
       } catch (err) {
-        warnFallback('insertBooking', err);
+        warnFallback('insertPendingBooking', err);
       }
     }
 
     // Demo path
     const db = loadDatabase();
-    db.bookings.unshift(newBooking);
-    db.earnings.unshift(newEarnings);
-
-    db.load_requests = db.load_requests.map((l) => {
-      if (l.id === newBooking.loadId) {
-        return { ...l, status: 'Booked', matched_trip_id: newBooking.tripId, booking_id: newBooking.id };
+    const trip = db.trips.find((t) => t.id === newBooking.tripId);
+    if (trip) {
+      const remaining = trip.capacity - trip.booked_capacity;
+      if (remaining < newBooking.weightKg) {
+        throw new Error(`Insufficient spare capacity! Remaining: ${remaining} Kg, Requested: ${newBooking.weightKg} Kg`);
       }
-      return l;
-    });
+      trip.booked_capacity += newBooking.weightKg;
+    }
 
-    db.trips = db.trips.map((t) => {
-      if (t.id === newBooking.tripId) {
-        return { ...t, booked_capacity: t.booked_capacity + newBooking.weightKg };
-      }
-      return t;
-    });
+    const pendingBooking: Booking = {
+      ...newBooking,
+      status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE,
+      escrowStatus: 'Unfunded'
+    };
+
+    db.bookings.unshift(pendingBooking);
+    db.load_requests = db.load_requests.map((l) =>
+      l.id === newBooking.loadId
+        ? { ...l, status: BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE, matched_trip_id: newBooking.tripId, booking_id: newBooking.id }
+        : l
+    );
 
     persistDatabase(db);
-    notifyRealtime('bookings', 'INSERT', newBooking);
+    notifyRealtime('bookings', 'INSERT', pendingBooking);
+  },
+
+  async acceptBooking(bookingId: string): Promise<void> {
+    if (supabase) {
+      try {
+        const { data: bRow, error: fetchErr } = await supabase.from('bookings').select('*').eq('id', bookingId).single();
+        if (fetchErr) throw fetchErr;
+        const b = mapBookingRow(bRow as unknown as DbBookingRow);
+
+        const { error: bErr } = await supabase.from('bookings').update({ status: BOOKING_STATUS.AWAITING_PAYMENT }).eq('id', bookingId);
+        if (bErr) throw bErr;
+
+        await supabase.from('load_requests').update({ status: BOOKING_STATUS.AWAITING_PAYMENT }).eq('id', b.loadId);
+        notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+        return;
+      } catch (err) {
+        warnFallback('acceptBooking', err);
+      }
+    }
+
+    const db = loadDatabase();
+    const b = db.bookings.find((item) => item.id === bookingId);
+    if (b) {
+      b.status = BOOKING_STATUS.AWAITING_PAYMENT;
+      db.load_requests = db.load_requests.map((l) =>
+        l.id === b.loadId ? { ...l, status: BOOKING_STATUS.AWAITING_PAYMENT } : l
+      );
+      persistDatabase(db);
+      notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+    }
+  },
+
+  async declineBooking(bookingId: string): Promise<void> {
+    if (supabase) {
+      try {
+        const { data: bRow, error: fetchErr } = await supabase.from('bookings').select('*').eq('id', bookingId).single();
+        if (fetchErr) throw fetchErr;
+        const b = mapBookingRow(bRow as unknown as DbBookingRow);
+
+        const { error: bErr } = await supabase.from('bookings').update({ status: BOOKING_STATUS.DECLINED }).eq('id', bookingId);
+        if (bErr) throw bErr;
+
+        // Restore trip capacity
+        const { data: tripData } = await supabase.from('trips').select('booked_capacity').eq('id', b.tripId).single();
+        if (tripData) {
+          const currentBooked = (tripData as { booked_capacity: number }).booked_capacity || 0;
+          await supabase.from('trips').update({ booked_capacity: Math.max(0, currentBooked - b.weightKg) }).eq('id', b.tripId);
+        }
+
+        // Reset load request
+        await supabase.from('load_requests').update({ status: BOOKING_STATUS.SEARCHING, matched_trip_id: null, booking_id: null }).eq('id', b.loadId);
+        notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+        return;
+      } catch (err) {
+        warnFallback('declineBooking', err);
+      }
+    }
+
+    const db = loadDatabase();
+    const b = db.bookings.find((item) => item.id === bookingId);
+    if (b) {
+      b.status = BOOKING_STATUS.DECLINED;
+      // Restore trip capacity
+      db.trips = db.trips.map((t) =>
+        t.id === b.tripId ? { ...t, booked_capacity: Math.max(0, t.booked_capacity - b.weightKg) } : t
+      );
+      // Reset load
+      db.load_requests = db.load_requests.map((l) =>
+        l.id === b.loadId ? { ...l, status: BOOKING_STATUS.SEARCHING, matched_trip_id: null, booking_id: null } : l
+      );
+      persistDatabase(db);
+      notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+    }
+  },
+
+  async payBooking(bookingId: string, paymentMethod: PaymentMethod, newEarnings: EarningsRecord): Promise<void> {
+    if (supabase) {
+      try {
+        const { data: bRow, error: fetchErr } = await supabase.from('bookings').select('*').eq('id', bookingId).single();
+        if (fetchErr) throw fetchErr;
+        const b = mapBookingRow(bRow as unknown as DbBookingRow);
+
+        // Idempotency: if already paid or funded, skip
+        if (b.escrowStatus === 'Held in Escrow' || b.status === BOOKING_STATUS.BOOKED || b.status === BOOKING_STATUS.IN_TRANSIT) {
+          return;
+        }
+
+        const { error: bErr } = await supabase.from('bookings').update({
+          status: BOOKING_STATUS.BOOKED,
+          escrow_status: 'Held in Escrow',
+          payment_method: paymentMethod
+        }).eq('id', bookingId);
+        if (bErr) throw bErr;
+
+        await supabase.from('earnings').insert(earningToDb(newEarnings));
+        await supabase.from('load_requests').update({ status: BOOKING_STATUS.BOOKED }).eq('id', b.loadId);
+
+        notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+        return;
+      } catch (err) {
+        warnFallback('payBooking', err);
+      }
+    }
+
+    const db = loadDatabase();
+    const b = db.bookings.find((item) => item.id === bookingId);
+    if (b) {
+      if (b.escrowStatus === 'Held in Escrow' || b.status === BOOKING_STATUS.BOOKED || b.status === BOOKING_STATUS.IN_TRANSIT) {
+        return;
+      }
+      b.status = BOOKING_STATUS.BOOKED;
+      b.escrowStatus = 'Held in Escrow';
+      b.paymentMethod = paymentMethod;
+
+      db.earnings.unshift(newEarnings);
+      db.load_requests = db.load_requests.map((l) =>
+        l.id === b.loadId ? { ...l, status: BOOKING_STATUS.BOOKED } : l
+      );
+      persistDatabase(db);
+      notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+    }
+  },
+
+  async confirmDelivery(bookingId: string, role: 'driver' | 'customer'): Promise<Booking[]> {
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      try {
+        const { data: bRow, error: fetchErr } = await supabase.from('bookings').select('*').eq('id', bookingId).single();
+        if (fetchErr) throw fetchErr;
+        const b = mapBookingRow(bRow as unknown as DbBookingRow);
+
+        const driverConfirmed = role === 'driver' ? true : b.driverConfirmedDelivery;
+        const retailerConfirmed = role === 'customer' ? true : b.retailerConfirmedDelivery;
+        const bothConfirmed = driverConfirmed && retailerConfirmed;
+
+        const updatePayload: Partial<DbBookingRow> = {
+          driver_confirmed_delivery: driverConfirmed,
+          retailer_confirmed_delivery: retailerConfirmed,
+          driver_confirmed_at: role === 'driver' ? now : b.driverConfirmedAt || null,
+          retailer_confirmed_at: role === 'customer' ? now : b.retailerConfirmedAt || null
+        };
+
+        if (bothConfirmed) {
+          updatePayload.status = 'Delivered';
+          updatePayload.escrow_status = 'Settled to Driver';
+          updatePayload.telemetry = {
+            ...b.telemetry,
+            progressPercent: 100,
+            currentSpeedKmh: 0,
+            checkpoints: b.telemetry.checkpoints.map((cp) => ({ ...cp, completed: true }))
+          };
+          await supabase.from('load_requests').update({ status: 'Delivered' }).eq('id', b.loadId);
+
+          // Update earnings record to Settled — match by booking-specific escrow reference
+          await supabase
+            .from('earnings')
+            .update({ status: 'Settled' })
+            .eq('payout_reference', `ESCROW-${bookingId.toUpperCase()}`);
+        }
+
+        await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+        notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+
+        const { data: refreshed, error: refreshErr } = await supabase
+          .from('bookings')
+          .select('*')
+          .order('created_at', { ascending: false });
+        // Bug 8 fix: always return a value from the live path — throw on error
+        // so we never fall through to the demo/localStorage path when live.
+        if (refreshErr) throw refreshErr;
+        if (refreshed) return (refreshed as unknown as DbBookingRow[]).map(mapBookingRow);
+        throw new Error('confirmDelivery: no rows returned after refresh');
+      } catch (err) {
+        warnFallback('confirmDelivery', err);
+        // Re-throw in live mode so the caller can handle the error rather than
+        // silently writing to localStorage instead of Supabase.
+        throw err;
+      }
+    }
+
+    const db = loadDatabase();
+    const b = db.bookings.find((item) => item.id === bookingId);
+    if (b) {
+      if (role === 'driver') {
+        b.driverConfirmedDelivery = true;
+        b.driverConfirmedAt = now;
+      }
+      if (role === 'customer') {
+        b.retailerConfirmedDelivery = true;
+        b.retailerConfirmedAt = now;
+      }
+
+      if (b.driverConfirmedDelivery && b.retailerConfirmedDelivery) {
+        b.status = 'Delivered';
+        b.escrowStatus = 'Settled to Driver';
+        b.telemetry.progressPercent = 100;
+        b.telemetry.currentSpeedKmh = 0;
+        b.telemetry.checkpoints = b.telemetry.checkpoints.map((cp) => ({ ...cp, completed: true }));
+
+        db.load_requests = db.load_requests.map((l) =>
+          l.id === b.loadId ? { ...l, status: 'Delivered' } : l
+        );
+
+        db.earnings = db.earnings.map((e) =>
+          e.payoutReference.includes(bookingId.toUpperCase()) || e.route.includes(b.from)
+            ? { ...e, status: 'Settled' as const }
+            : e
+        );
+      }
+      persistDatabase(db);
+      notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+    }
+    return db.bookings;
+  },
+
+  async cancelBooking(bookingId: string, cancelledBy: 'driver' | 'customer' | 'system', reason?: string): Promise<void> {
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      try {
+        const { data: bRow, error: fetchErr } = await supabase.from('bookings').select('*').eq('id', bookingId).single();
+        if (fetchErr) throw fetchErr;
+        const b = mapBookingRow(bRow as unknown as DbBookingRow);
+
+        const wasFunded = b.escrowStatus === 'Held in Escrow';
+        const finalEscrowStatus = wasFunded ? 'Refunded' : 'Unfunded';
+
+        await supabase.from('bookings').update({
+          status: 'Cancelled',
+          escrow_status: finalEscrowStatus,
+          cancelled_at: now,
+          cancelled_by: cancelledBy,
+          cancellation_reason: reason || 'Booking cancelled'
+        }).eq('id', bookingId);
+
+        // Restore trip capacity
+        const { data: tripData } = await supabase.from('trips').select('booked_capacity').eq('id', b.tripId).single();
+        if (tripData) {
+          const currentBooked = (tripData as { booked_capacity: number }).booked_capacity || 0;
+          await supabase.from('trips').update({ booked_capacity: Math.max(0, currentBooked - b.weightKg) }).eq('id', b.tripId);
+        }
+
+        if (wasFunded) {
+          await supabase.from('load_requests').update({ status: 'Cancelled' }).eq('id', b.loadId);
+          await supabase
+            .from('earnings')
+            .update({ status: 'Refunded' })
+            .or(`payout_reference.eq.ESCROW-${bookingId.toUpperCase()},payout_reference.eq.ESCROW-${b.id.toUpperCase()}`);
+        } else {
+          await supabase.from('load_requests').update({ status: 'Searching', matched_trip_id: null, booking_id: null }).eq('id', b.loadId);
+        }
+
+        notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+        return;
+      } catch (err) {
+        warnFallback('cancelBooking', err);
+      }
+    }
+
+    const db = loadDatabase();
+    const b = db.bookings.find((item) => item.id === bookingId);
+    if (b) {
+      const wasFunded = b.escrowStatus === 'Held in Escrow';
+      b.status = 'Cancelled';
+      b.escrowStatus = wasFunded ? 'Refunded' : 'Unfunded';
+      b.cancelledAt = now;
+      b.cancelledBy = cancelledBy;
+      b.cancellationReason = reason || 'Booking cancelled';
+
+      // Restore trip capacity
+      db.trips = db.trips.map((t) =>
+        t.id === b.tripId ? { ...t, booked_capacity: Math.max(0, t.booked_capacity - b.weightKg) } : t
+      );
+
+      if (wasFunded) {
+        db.load_requests = db.load_requests.map((l) =>
+          l.id === b.loadId ? { ...l, status: 'Cancelled' } : l
+        );
+        db.earnings = db.earnings.map((e) =>
+          e.payoutReference.includes(bookingId.toUpperCase()) || e.route.includes(b.from)
+            ? { ...e, status: 'Refunded' as const }
+            : e
+        );
+      } else {
+        db.load_requests = db.load_requests.map((l) =>
+          l.id === b.loadId ? { ...l, status: 'Searching', matched_trip_id: null, booking_id: null } : l
+        );
+      }
+
+      persistDatabase(db);
+      notifyRealtime('bookings', 'UPDATE', { id: bookingId });
+    }
   },
 
   async advanceBookingStatus(bookingId: string): Promise<Booking[]> {
@@ -1060,9 +1448,12 @@ export const SupabaseService = {
           .select('*')
           .order('created_at', { ascending: false });
         if (refreshError) throw refreshError;
-        return (refreshed as unknown as DbBookingRow[]).map(mapBookingRow);
+        // Bug 8 fix (same pattern): always return from live path, never fall through
+        if (refreshed) return (refreshed as unknown as DbBookingRow[]).map(mapBookingRow);
+        throw new Error('advanceBookingStatus: no rows returned after refresh');
       } catch (err) {
         warnFallback('advanceBookingStatus', err);
+        throw err;
       }
     }
 
@@ -1075,10 +1466,11 @@ export const SupabaseService = {
     return db.bookings;
   },
 
-  resetToSeed(): void {
-    // Live mode: wipe tables and re-seed so both modes behave identically.
+  // Bug 18 fix: return a Promise so callers can await the full reset before
+  // fetching fresh data (previously fire-and-forgot in live mode).
+  resetToSeed(): Promise<void> {
     if (supabase) {
-      void (async () => {
+      return (async () => {
         try {
           await Promise.all([
             supabase.from('trips').delete().neq('id', '__none__'),
@@ -1092,7 +1484,6 @@ export const SupabaseService = {
           warnFallback('resetToSeed (live)', err);
         }
       })();
-      return;
     }
 
     localStorage.removeItem(DB_STORAGE_KEY);
@@ -1104,5 +1495,6 @@ export const SupabaseService = {
     };
     persistDatabase(db);
     notifyRealtime('system', 'UPDATE', { action: 'reset' });
+    return Promise.resolve();
   }
 };

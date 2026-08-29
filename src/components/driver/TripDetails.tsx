@@ -199,7 +199,7 @@ export const TripDetails: React.FC<TripDetailsProps> = ({ trip, onBack, onNaviga
                 <div style={{ textAlign: 'center', padding: '24px', backgroundColor: 'var(--surface-3)', borderRadius: '8px' }}>
                   <Package size={24} color="var(--text-secondary)" style={{ margin: '0 auto 8px' }} />
                   <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    No loads booked yet. AI matching is actively scanning regional shippers along this corridor.
+                    No loads booked yet. The matching engine is actively scanning regional shippers along this corridor.
                   </p>
                 </div>
               ) : (

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MapPin, IndianRupee, ArrowRight, Store, Route, Cpu } from 'lucide-react';
 import { calculateDistanceAndDuration, generateCorridorCode } from '../../services/routingEngine';
 import { validateLocationStringAsync } from '../../services/geocodingService';
 import { predictFreightPriceAndMatch } from '../../services/mlInferenceService';
+import { calculateBackhaulPricing } from '../../services/pricingEngine';
 import { NewLoadInput } from '../../types/logistics';
 
 interface PostLoadRequestProps {
@@ -24,12 +25,35 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
     specialInstructions: 'Bubble wrapped retail display shelves. Hydraulic lift gate preferred.'
   });
 
-  const routeInfo = calculateDistanceAndDuration(formData.from, formData.to);
-  const mlPrediction = predictFreightPriceAndMatch({
-    distanceKm: routeInfo.distanceKm,
-    weightKg: formData.weightUnit === 'CBM' ? formData.weight * 250 : formData.weight,
-    corridorId: routeInfo.corridorId
-  });
+  const weightKgCalc = formData.weightUnit === 'CBM' ? formData.weight * 250 : formData.weight;
+
+  // Bug 14 fix: derive the displayed market-rate range from the SAME pricing engine
+  // the matching algorithm uses (calculateBackhaulPricing), so the two numbers shown
+  // to users are always consistent.  The pricing heuristic is kept for match-confidence only.
+  const routeInfo = useMemo(
+    () => calculateDistanceAndDuration(formData.from, formData.to),
+    [formData.from, formData.to]
+  );
+
+  const pricingEstimate = useMemo(
+    () => calculateBackhaulPricing({
+      distanceKm: routeInfo.distanceKm,
+      weightKg: weightKgCalc,
+      corridorId: routeInfo.corridorId,
+      isReturnTrip: true
+    }),
+    [routeInfo.distanceKm, weightKgCalc, routeInfo.corridorId]
+  );
+
+  // Pricing heuristic used for match-score confidence only (not price), avoiding contradiction
+  const mlPrediction = useMemo(
+    () => predictFreightPriceAndMatch({
+      distanceKm: routeInfo.distanceKm,
+      weightKg: weightKgCalc,
+      corridorId: routeInfo.corridorId
+    }),
+    [routeInfo.distanceKm, weightKgCalc, routeInfo.corridorId]
+  );
 
   // Auto-update corridor code when origin or destination changes
   useEffect(() => {
@@ -40,7 +64,7 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
   }, [formData.from, formData.to]);
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [, setIsValidating] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,13 +220,22 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', color: '#0F172A', fontWeight: 600 }}>
               <Cpu size={16} color="#0D9488" />
-              <span>Market Rate Estimate: {mlPrediction.confidenceIntervalText}</span>
+              {/* Bug 14 fix: price range now comes from calculateBackhaulPricing,
+                  the same engine used by the matching algorithm. */}
+              <span>
+                Backhaul Rate: ₹{pricingEstimate.retailerBudget.toLocaleString()} – ₹{pricingEstimate.totalPrice.toLocaleString()}
+                {pricingEstimate.savingsPercentage > 0 && (
+                  <span style={{ marginLeft: '8px', color: '#0D9488' }}>
+                    ({pricingEstimate.savingsPercentage}% below spot rate)
+                  </span>
+                )}
+              </span>
               <span style={{ marginLeft: 'auto', backgroundColor: '#E0F2FE', color: '#0369A1', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>
-                Rule-based
+                Pricing engine
               </span>
             </div>
             <p style={{ margin: 0, color: '#64748B' }}>
-              Calibrated on published ₹/ton-km market rates ({mlPrediction.modelName} v{mlPrediction.modelVersion}) · Est. Match Rate: {mlPrediction.predictedMatchScore}%
+              Est. Match Score: {mlPrediction.predictedMatchScore}% · {routeInfo.corridorName} corridor · {routeInfo.distanceKm} km
             </p>
           </div>
 
@@ -365,9 +398,10 @@ export const PostLoadRequest: React.FC<PostLoadRequestProps> = ({ onSubmitLoad, 
               type="submit"
               className="btn-primary-amber"
               id="submit-find-matches"
-              style={{ flex: 2, height: '48px' }}
+              disabled={isValidating}
+              style={{ flex: 2, height: '48px', opacity: isValidating ? 0.7 : 1 }}
             >
-              <span>Find Matches Immediately</span>
+              <span>{isValidating ? 'Validating Locations...' : 'Find Matches Immediately'}</span>
               <ArrowRight size={18} />
             </button>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Phone,
   MessageSquare,
@@ -12,71 +12,121 @@ import {
   ArrowLeft,
   Signal
 } from 'lucide-react';
+import { isLiveBackend } from '../../services/supabaseClient';
 import { Booking, ShipmentStatus } from '../../types/logistics';
 import { formatCurrency, formatWeight } from '../../utils/formatting';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default icon path (broken in Vite/webpack bundlers)
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+// Custom truck marker icon
+const truckIcon = L.divIcon({
+  html: `<div style="
+    background: #1D9E75;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 0 4px rgba(29,158,117,0.3), 0 4px 12px rgba(0,0,0,0.4);
+    animation: truckPulse 2s ease-in-out infinite;
+  ">🚛</div>`,
+  className: '',
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+});
+
+const originIcon = L.divIcon({
+  html: `<div style="
+    background: #1D9E75;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  "></div>`,
+  className: '',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+const destIcon = L.divIcon({
+  html: `<div style="
+    background: #BA7517;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  "></div>`,
+  className: '',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+/**
+ * Inner component that re-centres the map whenever the truck position changes.
+ */
+function MapRecenter({ position }: { position: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.panTo(position, { animate: true, duration: 1.2 });
+  }, [position, map]);
+  return null;
+}
 
 interface LiveTrackingMapProps {
   booking: Booking;
+  currentPersona?: 'driver' | 'customer' | 'admin' | 'guest';
   onAdvanceStatus: (bookingId: string) => void;
+  onConfirmDelivery?: (bookingId: string, role: 'driver' | 'customer') => void;
+  onCancelBooking?: (bookingId: string, reason?: string) => void;
   onOpenChat: () => void;
   onBack: () => void;
 }
 
 const STEPPER_STAGES: ShipmentStatus[] = ['Booked', 'Picked Up', 'In Transit', 'Delivered'];
 
-/* SVG path for the highway corridor curve */
-const ROUTE_PATH = 'M 40 160 C 140 160, 180 40, 260 80 S 360 140, 440 50';
-
 /**
- * Helper: get point coordinates on a cubic bézier SVG path at a given t [0,1].
- * We use an invisible <path> element and getPointAtLength for accurate positioning.
+ * Interpolates a position along an array of [lat,lng] waypoints at a given
+ * progress percentage (0–100). Used to animate the truck marker.
  */
-function usePathPoint(pathD: string, progress: number) {
-  const [point, setPoint] = useState({ x: 40, y: 160 });
-  const pathRef = useRef<SVGPathElement | null>(null);
-  const svgRef = useRef<SVGSVGElement | null>(null);
+function interpolatePosition(
+  coords: [number, number][],
+  progress: number
+): [number, number] {
+  if (!coords || coords.length === 0) return [17.3850, 78.4867];
+  if (coords.length === 1) return coords[0];
+  if (progress <= 0) return coords[0];
+  if (progress >= 100) return coords[coords.length - 1];
 
-  useEffect(() => {
-    if (!pathRef.current) {
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', pathD);
-      svg.appendChild(path);
-      svg.style.position = 'absolute';
-      svg.style.width = '0';
-      svg.style.height = '0';
-      svg.style.overflow = 'hidden';
-      svg.style.pointerEvents = 'none';
-      document.body.appendChild(svg);
-      pathRef.current = path;
-      svgRef.current = svg;
-    }
+  const t = progress / 100;
+  const segCount = coords.length - 1;
+  const rawSeg = t * segCount;
+  const segIdx = Math.min(Math.floor(rawSeg), segCount - 1);
+  const segT = rawSeg - segIdx;
 
-    const path = pathRef.current;
-    if (path) {
-      const totalLength = path.getTotalLength();
-      const t = Math.min(Math.max(progress / 100, 0), 1);
-      const p = path.getPointAtLength(totalLength * t);
-      setPoint({ x: p.x, y: p.y });
-    }
-  }, [pathD, progress]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (svgRef.current && svgRef.current.parentNode) {
-        svgRef.current.parentNode.removeChild(svgRef.current);
-      }
-    };
-  }, []);
-
-  return point;
+  const [lat1, lng1] = coords[segIdx];
+  const [lat2, lng2] = coords[segIdx + 1];
+  return [lat1 + (lat2 - lat1) * segT, lng1 + (lng2 - lng1) * segT];
 }
 
 /**
- * ETA Countdown — live ticking timer that counts down from etaMinutes
+ * ETA Countdown — live ticking timer.
+ * Stops counting when booking is cancelled or delivered.
  */
-const EtaCountdown: React.FC<{ etaMinutes: number }> = ({ etaMinutes }) => {
+const EtaCountdown: React.FC<{ etaMinutes: number; active: boolean }> = ({ etaMinutes, active }) => {
   const [seconds, setSeconds] = useState(etaMinutes * 60);
 
   useEffect(() => {
@@ -84,12 +134,14 @@ const EtaCountdown: React.FC<{ etaMinutes: number }> = ({ etaMinutes }) => {
   }, [etaMinutes]);
 
   useEffect(() => {
-    if (seconds <= 0) return;
+    // Bug 1 fix: only tick when the booking is in an active transit state.
+    // If active is false (cancelled / delivered) the interval is never created.
+    if (!active || seconds <= 0) return;
     const interval = setInterval(() => {
       setSeconds((s) => Math.max(0, s - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [seconds]);
+  }, [active, seconds]);
 
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
@@ -137,59 +189,62 @@ const EtaCountdown: React.FC<{ etaMinutes: number }> = ({ etaMinutes }) => {
   );
 };
 
-/**
- * Animated pulsing ring for the truck marker on the map
- */
-const TruckPulse: React.FC<{ cx: number; cy: number }> = ({ cx, cy }) => (
-  <g>
-    {/* Outer pulsing ring */}
-    <circle cx={cx} cy={cy} r="22" fill="none" stroke="#1D9E75" strokeWidth="2" opacity="0.3">
-      <animate attributeName="r" values="22;30;22" dur="2s" repeatCount="indefinite" />
-      <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
-    </circle>
-    {/* Mid ring */}
-    <circle cx={cx} cy={cy} r="18" fill="none" stroke="#1D9E75" strokeWidth="1.5" opacity="0.5">
-      <animate attributeName="r" values="18;24;18" dur="2s" begin="0.3s" repeatCount="indefinite" />
-      <animate attributeName="opacity" values="0.5;0;0.5" dur="2s" begin="0.3s" repeatCount="indefinite" />
-    </circle>
-    {/* Core dot */}
-    <circle cx={cx} cy={cy} r="14" fill="#1D9E75" />
-    <circle cx={cx} cy={cy} r="14" fill="url(#truckGlow)" />
-    <text x={cx - 7} y={cy + 5} fill="#FFFFFF" fontSize="13" fontWeight="bold">🚛</text>
-  </g>
-);
-
 export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   booking,
+  currentPersona = 'customer',
   onAdvanceStatus,
+  onConfirmDelivery,
+  onCancelBooking,
   onOpenChat,
   onBack
 }) => {
   const [callActive, setCallActive] = useState(false);
   const [markerProgress, setMarkerProgress] = useState(0);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const currentStageIndex = STEPPER_STAGES.indexOf(booking.status);
 
-  // Animate marker to current progress
+  // These must be declared before any useEffect that references them
+  const isDelivered = booking.status === 'Delivered';
+  const isCancelled = booking.status === 'Cancelled';
+  const isActiveTransit = !isCancelled && !isDelivered;
+
+  // Bug 13 fix: guard against null/missing telemetry before any array operations.
+  const routeCoords: [number, number][] = (
+    booking.telemetry?.routeCoordinates as [number, number][] | undefined
+  ) ?? [[17.3850, 78.4867], [17.9689, 79.5941]];
+
+  // Bug 12 fix: cancel the previous animation frame on every new effect run.
+  // Bug 1 fix: skip animation entirely when booking is cancelled or delivered.
   useEffect(() => {
-    const target = booking.telemetry.progressPercent;
+    if (!isActiveTransit) return; // no animation needed for terminal states
+    const target = booking.telemetry?.progressPercent ?? 0;
     const start = markerProgress;
     const startTime = performance.now();
     const duration = 1200;
+    let rafId: number;
 
     const animate = (now: number) => {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
-      // Ease out cubic
       const eased = 1 - Math.pow(1 - t, 3);
       setMarkerProgress(start + (target - start) * eased);
-      if (t < 1) requestAnimationFrame(animate);
+      if (t < 1) rafId = requestAnimationFrame(animate);
     };
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
+  }, [booking.telemetry?.progressPercent, isActiveTransit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const truckPos = interpolatePosition(routeCoords, markerProgress);
 
-    requestAnimationFrame(animate);
-  }, [booking.telemetry.progressPercent]);
+  // Split route into completed (green) and remaining (dim) segments
+  const completedIdx = Math.floor((markerProgress / 100) * (routeCoords.length - 1));
+  const completedPath: [number, number][] = [...routeCoords.slice(0, completedIdx + 1), truckPos];
+  const remainingPath: [number, number][] = [truckPos, ...routeCoords.slice(completedIdx + 1)];
 
-  const truckPoint = usePathPoint(ROUTE_PATH, markerProgress);
+  const mapCenter: [number, number] = routeCoords.length > 0
+    ? [routeCoords.reduce((s, c) => s + c[0], 0) / routeCoords.length,
+       routeCoords.reduce((s, c) => s + c[1], 0) / routeCoords.length]
+    : [17.3850, 78.4867];
 
   const handleCallDriver = () => {
     setCallActive(true);
@@ -197,6 +252,9 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   };
 
   const getStatusCaption = () => {
+    if (booking.status === 'Cancelled') {
+      return `Shipment cancelled. Escrow refund of ${formatCurrency(booking.totalPrice)} processed.`;
+    }
     switch (booking.status) {
       case 'Booked':
         return 'Booking confirmed. Escrow secured. Vehicle preparing for pickup at origin warehouse.';
@@ -205,23 +263,254 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
       case 'In Transit':
         return `Truck en route on ${booking.corridor} corridor. Speed: ${booking.telemetry.currentSpeedKmh} km/h. ETA ~${booking.telemetry.etaMinutes} mins.`;
       case 'Delivered':
-        return 'Destination dock check-in verified. Proof of delivery uploaded. Escrow settlement released to driver!';
+        return 'Two-sided delivery verified! Escrow settlement released to driver.';
       default:
         return 'Active shipment tracking.';
     }
   };
 
+  const driverPayout = Math.round(booking.basePrice * 0.975);
+
   return (
     <div className="live-tracking-view animate-fade-in" style={{ maxWidth: '1040px', margin: '0 auto', paddingBottom: '48px' }}>
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="btn-outline-navy btn-sm"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '16px' }}
+      {/* Top Bar with Back and Cancellation Actions */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <button
+          onClick={onBack}
+          className="btn-outline-navy btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          <ArrowLeft size={15} />
+          <span>Back to Dashboard</span>
+        </button>
+
+        {!isDelivered && !isCancelled && (
+          <button
+            onClick={() => setShowCancelConfirm(true)}
+            className="btn-outline-navy btn-sm"
+            style={{ color: 'var(--brand-coral)', borderColor: 'rgba(239, 68, 68, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            id="cancel-shipment-refund-btn"
+          >
+            <span>Cancel Shipment &amp; Refund Escrow</span>
+          </button>
+        )}
+      </div>
+
+      {/* Cancellation Confirmation Modal */}
+      {showCancelConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="card animate-fade-in"
+            style={{
+              maxWidth: '460px',
+              width: '100%',
+              padding: '28px',
+              borderRadius: 'var(--radius-lg)',
+              backgroundColor: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
+              boxShadow: 'var(--shadow-lg)'
+            }}
+          >
+            <h3 style={{ color: 'var(--brand-navy)', fontSize: '1.25rem', marginBottom: '8px' }}>
+              Confirm Shipment Cancellation &amp; Refund
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', lineHeight: 1.5, marginBottom: '20px' }}>
+              Are you sure you want to cancel booking #{booking.id}? Funds held in escrow ({formatCurrency(booking.totalPrice)}) will be immediately marked <strong>Refunded</strong>, and driver payload capacity will be restored.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                className="btn-outline-navy"
+                onClick={() => setShowCancelConfirm(false)}
+                style={{ padding: '8px 16px', fontSize: '0.875rem' }}
+              >
+                Go Back
+              </button>
+              <button
+                className="btn-primary-coral"
+                onClick={() => {
+                  setShowCancelConfirm(false);
+                  onCancelBooking?.(booking.id, 'User requested cancellation');
+                }}
+                style={{ padding: '8px 18px', fontSize: '0.875rem', backgroundColor: 'var(--brand-coral)', color: '#FFFFFF' }}
+                id="confirm-cancel-refund-btn"
+              >
+                Confirm &amp; Refund Escrow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Two-Sided Delivery Verification Strip (CRITICAL) */}
+      <div
+        className="card animate-fade-in"
+        style={{
+          padding: '20px 24px',
+          borderRadius: 'var(--radius-card)',
+          marginBottom: '24px',
+          backgroundColor: isDelivered
+            ? 'var(--brand-teal-light)'
+            : isCancelled
+            ? 'var(--brand-coral-light)'
+            : 'var(--surface-3)',
+          border: isDelivered
+            ? '1.5px solid var(--brand-teal)'
+            : isCancelled
+            ? '1.5px solid var(--brand-coral)'
+            : '1.5px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px'
+        }}
       >
-        <ArrowLeft size={15} />
-        <span>Back to Dashboard</span>
-      </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isDelivered ? 'var(--brand-teal)' : isCancelled ? 'var(--brand-coral)' : 'var(--brand-navy)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              TWO-SIDED ESCROW RELEASE PROTOCOL
+            </div>
+            <h3 style={{ fontSize: '1.125rem', color: 'var(--brand-navy)', margin: '2px 0 0' }}>
+              {isDelivered
+                ? 'Consignment Delivered & Escrow Settled'
+                : isCancelled
+                ? 'Shipment Cancelled — Escrow Refunded'
+                : 'Delivery Verification Required Before Payout'}
+            </h3>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              style={{
+                fontSize: '0.8125rem',
+                fontWeight: 700,
+                padding: '6px 12px',
+                borderRadius: '6px',
+                backgroundColor: isDelivered ? 'var(--brand-teal)' : isCancelled ? 'var(--brand-coral)' : 'var(--surface-2)',
+                color: isDelivered || isCancelled ? '#FFFFFF' : 'var(--brand-navy)',
+                fontFamily: 'var(--font-mono)'
+              }}
+            >
+              Escrow: {booking.escrowStatus} ({formatCurrency(booking.totalPrice)})
+            </span>
+          </div>
+        </div>
+
+        {/* Confirmation State Badges & Interactive Buttons */}
+        {!isCancelled && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: '14px',
+              paddingTop: '12px',
+              borderTop: '1px solid var(--border-light)'
+            }}
+          >
+            {/* Driver Side Confirmation */}
+            <div
+              style={{
+                padding: '14px',
+                backgroundColor: 'var(--surface-2)',
+                borderRadius: '8px',
+                border: booking.driverConfirmedDelivery ? '1.5px solid var(--brand-teal)' : '1px solid var(--border-light)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  1. DRIVER CONFIRMATION
+                </div>
+                <div style={{ fontSize: '0.875rem', fontWeight: 700, color: booking.driverConfirmedDelivery ? 'var(--brand-teal)' : 'var(--text-primary)', marginTop: '2px' }}>
+                  {booking.driverConfirmedDelivery ? '✓ Marked as Delivered' : 'Pending Driver Drop-off'}
+                </div>
+                {booking.driverConfirmedAt && (
+                  <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>
+                    Confirmed: {new Date(booking.driverConfirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+
+              {!booking.driverConfirmedDelivery && (currentPersona === 'driver' || currentPersona === 'admin') && (
+                <button
+                  className="btn-primary-teal btn-sm"
+                  onClick={() => onConfirmDelivery?.(booking.id, 'driver')}
+                  id="driver-confirm-delivery-btn"
+                  style={{ height: '34px', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                >
+                  Mark Delivered
+                </button>
+              )}
+            </div>
+
+            {/* Retailer Side Confirmation */}
+            <div
+              style={{
+                padding: '14px',
+                backgroundColor: 'var(--surface-2)',
+                borderRadius: '8px',
+                border: booking.retailerConfirmedDelivery ? '1.5px solid var(--brand-teal)' : '1px solid var(--border-light)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  2. RETAILER CONFIRMATION
+                </div>
+                <div style={{ fontSize: '0.875rem', fontWeight: 700, color: booking.retailerConfirmedDelivery ? 'var(--brand-teal)' : 'var(--text-primary)', marginTop: '2px' }}>
+                  {booking.retailerConfirmedDelivery ? '✓ Goods Confirmed Received' : 'Pending Retailer Receipt'}
+                </div>
+                {booking.retailerConfirmedAt && (
+                  <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>
+                    Confirmed: {new Date(booking.retailerConfirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+
+              {!booking.retailerConfirmedDelivery && (currentPersona === 'customer' || currentPersona === 'admin') && (
+                <button
+                  className="btn-primary-amber btn-sm"
+                  onClick={() => onConfirmDelivery?.(booking.id, 'customer')}
+                  id="retailer-confirm-received-btn"
+                  style={{ height: '34px', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                >
+                  Confirm Received
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Status Explainer */}
+        <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ShieldCheck size={16} color={isDelivered ? '#1D9E75' : '#BA7517'} style={{ flexShrink: 0 }} />
+          <span>
+            {isDelivered
+              ? `Settlement complete! ₹${driverPayout.toLocaleString()} released to driver ${booking.driverName}.`
+              : booking.driverConfirmedDelivery && !booking.retailerConfirmedDelivery
+              ? `Driver confirmed delivery. Escrow payout is safely locked until retailer confirms receipt.`
+              : !booking.driverConfirmedDelivery && booking.retailerConfirmedDelivery
+              ? `Retailer confirmed receipt. Escrow payout is safely locked until driver marks delivery.`
+              : `Escrow funds (${formatCurrency(booking.totalPrice)}) remain strictly locked until BOTH parties confirm delivery.`}
+          </span>
+        </div>
+      </div>
 
       {/* Top Status Stepper */}
       <div
@@ -257,7 +546,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
             <div
               style={{
                 height: '100%',
-                width: `${(currentStageIndex / (STEPPER_STAGES.length - 1)) * 100}%`,
+                width: `${(Math.max(0, currentStageIndex) / (STEPPER_STAGES.length - 1)) * 100}%`,
                 backgroundColor: 'var(--brand-teal)',
                 transition: 'width 0.5s ease-out'
               }}
@@ -265,8 +554,8 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
           </div>
 
           {STEPPER_STAGES.map((stage, idx) => {
-            const isCompleted = idx < currentStageIndex;
-            const isCurrent = idx === currentStageIndex;
+            const isCompleted = idx < currentStageIndex || isDelivered;
+            const isCurrent = idx === currentStageIndex && !isDelivered;
 
             return (
               <div
@@ -340,8 +629,8 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
             <span>{getStatusCaption()}</span>
           </div>
 
-          {/* Advance Simulation Step Action */}
-          {booking.status !== 'Delivered' && (
+          {/* Advance Simulation Step Action — only visible to driver/admin */}
+          {booking.status !== 'Delivered' && booking.status !== 'Cancelled' && (currentPersona === 'driver' || currentPersona === 'admin') && (
             <button
               onClick={() => onAdvanceStatus(booking.id)}
               className="btn-outline-teal btn-sm"
@@ -385,8 +674,12 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 2 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#9DA4B0', textTransform: 'uppercase' }}>
-                <Signal size={12} color="#1D9E75" />
-                LIVE GPS TELEMETRY (4G ACTIVE)
+                <Signal size={12} color={isCancelled ? '#D85A30' : isLiveBackend && booking.telemetry.currentSpeedKmh > 0 ? '#1D9E75' : '#9DA4B0'} />
+                {isCancelled
+                  ? 'TRACKING STOPPED — SHIPMENT CANCELLED'
+                  : isLiveBackend && booking.telemetry.currentSpeedKmh > 0
+                  ? 'LIVE GPS TRACKING (4G ACTIVE)'
+                  : 'SIMULATED ROUTE TRACKING (DEMO)'}
               </div>
               <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#FFFFFF', marginTop: '2px' }}>
                 {booking.from} → {booking.to}
@@ -406,120 +699,92 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
             </div>
           </div>
 
-          {/* Interactive Simulated Highway Canvas / Map Visualizer */}
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              height: '240px',
-              margin: '16px 0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <svg width="100%" height="100%" viewBox="0 0 480 200" style={{ overflow: 'visible' }}>
-              {/* Defs for gradients & filters */}
-              <defs>
-                {/* Grid Background Pattern */}
-                <pattern id="mapGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                </pattern>
-
-                {/* Glow filter for the active route */}
-                <filter id="routeGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="4" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-
-                {/* Radial glow for truck marker */}
-                <radialGradient id="truckGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#1D9E75" stopOpacity="0.8" />
-                  <stop offset="100%" stopColor="#1D9E75" stopOpacity="0" />
-                </radialGradient>
-
-                {/* Active route gradient */}
-                <linearGradient id="activeRouteGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#1D9E75" />
-                  <stop offset="100%" stopColor="#5DCAA5" />
-                </linearGradient>
-              </defs>
-
-              <rect width="480" height="200" fill="url(#mapGrid)" rx="8" />
-
-              {/* Highway Corridor Line (background — full route) */}
-              <path
-                d={ROUTE_PATH}
-                fill="none"
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth="8"
-                strokeLinecap="round"
+          {/* ── Real Leaflet / OpenStreetMap Interactive Map ── */}
+          <style>{`
+            @keyframes truckPulse {
+              0%, 100% { box-shadow: 0 0 0 4px rgba(29,158,117,0.35), 0 4px 12px rgba(0,0,0,0.4); }
+              50% { box-shadow: 0 0 0 10px rgba(29,158,117,0.1), 0 4px 12px rgba(0,0,0,0.4); }
+            }
+            .leaflet-container { border-radius: 10px; }
+          `}</style>
+          <div style={{ position: 'relative', width: '100%', height: '260px', margin: '16px 0', borderRadius: '10px', overflow: 'hidden' }}>
+            <MapContainer
+              center={mapCenter}
+              zoom={routeCoords.length > 2 ? 8 : 10}
+              style={{ width: '100%', height: '100%' }}
+              zoomControl={false}
+              attributionControl={false}
+            >
+              {/* Dark OSM tile layer — matches the existing dark card theme */}
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                attribution='&copy; <a href="https://carto.com/">CARTO</a>'
               />
 
-              {/* Dashed road center marking */}
-              <path
-                d={ROUTE_PATH}
-                fill="none"
-                stroke="rgba(255,255,255,0.08)"
-                strokeWidth="1"
-                strokeDasharray="8 6"
-                strokeLinecap="round"
-              />
+              {/* Remaining (dim) path */}
+              {remainingPath.length > 1 && (
+                <Polyline
+                  positions={remainingPath}
+                  pathOptions={{ color: 'rgba(255,255,255,0.18)', weight: 5, lineCap: 'round', lineJoin: 'round' }}
+                />
+              )}
 
-              {/* Active Completed Corridor Glow */}
-              <path
-                d={ROUTE_PATH}
-                fill="none"
-                stroke="url(#activeRouteGrad)"
-                strokeWidth="4"
-                strokeDasharray="480"
-                strokeDashoffset={480 - (480 * markerProgress) / 100}
-                strokeLinecap="round"
-                filter="url(#routeGlow)"
-                style={{ transition: 'stroke-dashoffset 0.3s ease-out' }}
-              />
+              {/* Completed (glowing teal) path */}
+              {completedPath.length > 1 && (
+                <Polyline
+                  positions={completedPath}
+                  pathOptions={{ color: '#1D9E75', weight: 5, lineCap: 'round', lineJoin: 'round' }}
+                />
+              )}
 
-              {/* Pickup Pin */}
-              <circle cx="40" cy="160" r="8" fill="#1D9E75" />
-              <circle cx="40" cy="160" r="14" fill="none" stroke="#1D9E75" opacity="0.5" />
-              <text x="10" y="190" fill="#FFFFFF" fontSize="10" fontWeight="bold">Origin</text>
+              {/* Origin pin */}
+              {routeCoords.length > 0 && (
+                <Marker position={routeCoords[0]} icon={originIcon}>
+                  <Popup>{booking.from}</Popup>
+                </Marker>
+              )}
 
-              {/* Drop Pin */}
-              <circle cx="440" cy="50" r="8" fill="#BA7517" />
-              <circle cx="440" cy="50" r="14" fill="none" stroke="#BA7517" opacity="0.5" />
-              <text x="400" y="30" fill="#FFFFFF" fontSize="10" fontWeight="bold">Destination</text>
+              {/* Destination pin */}
+              {routeCoords.length > 1 && (
+                <Marker position={routeCoords[routeCoords.length - 1]} icon={destIcon}>
+                  <Popup>{booking.to}</Popup>
+                </Marker>
+              )}
 
-              {/* Intermediate Checkpoints */}
-              {booking.telemetry.checkpoints.map((cp, i) => {
-                const cpProgress = ((i + 1) / (booking.telemetry.checkpoints.length + 1)) * 100;
-                const opacity = cpProgress <= markerProgress ? 1 : 0.4;
-                return (
-                  <g key={i}>
-                    <circle
-                      cx={40 + (cpProgress / 100) * 400}
-                      cy={160 - Math.sin((cpProgress / 100) * Math.PI) * 90}
-                      r="5"
-                      fill={cp.completed ? '#1D9E75' : '#FFFFFF'}
-                      opacity={opacity}
-                    />
-                    {cp.completed && (
-                      <text
-                        x={40 + (cpProgress / 100) * 400}
-                        y={160 - Math.sin((cpProgress / 100) * Math.PI) * 90 - 10}
-                        fill="#9DA4B0"
-                        fontSize="8"
-                        textAnchor="middle"
-                      >
-                        {cp.name.split(' ').slice(0, 2).join(' ')}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
+              {/* Animated truck marker */}
+              <Marker position={truckPos} icon={truckIcon}>
+                <Popup>
+                  🚛 {booking.driverName}<br />
+                  Speed: {booking.telemetry.currentSpeedKmh} km/h<br />
+                  {booking.telemetry.currentLocationName}
+                </Popup>
+              </Marker>
 
-              {/* Animated Truck Marker — positioned on the SVG path */}
-              <TruckPulse cx={truckPoint.x} cy={truckPoint.y} />
-            </svg>
+              {/* Auto-pan map to follow truck */}
+              <MapRecenter position={truckPos} />
+            </MapContainer>
+
+            {/* HUD overlay — speed & progress badge */}
+            <div style={{
+              position: 'absolute', top: '10px', right: '10px', zIndex: 1000,
+              background: 'rgba(18,24,32,0.88)', backdropFilter: 'blur(6px)',
+              borderRadius: '8px', padding: '8px 14px',
+              display: 'flex', gap: '16px', alignItems: 'center',
+              border: '1px solid rgba(29,158,117,0.3)'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#5DCAA5' }}>
+                  {booking.telemetry.currentSpeedKmh}
+                </div>
+                <div style={{ fontSize: '0.5625rem', color: '#9DA4B0', textTransform: 'uppercase' }}>km/h</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#5DCAA5' }}>
+                  {booking.telemetry.progressPercent}%
+                </div>
+                <div style={{ fontSize: '0.5625rem', color: '#9DA4B0', textTransform: 'uppercase' }}>done</div>
+              </div>
+            </div>
           </div>
 
           {/* Bottom Map Stats */}
@@ -545,7 +810,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
           <div
             style={{
               padding: '20px 24px',
-              backgroundColor: '#1E232B',
+              backgroundColor: isCancelled ? '#1C1010' : '#1E232B',
               color: '#FFFFFF',
               display: 'flex',
               justifyContent: 'space-between',
@@ -555,26 +820,38 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
           >
             <div>
               <div style={{ fontSize: '0.6875rem', textTransform: 'uppercase', color: '#9DA4B0', letterSpacing: '0.8px', fontWeight: 600, marginBottom: '4px' }}>
-                Estimated Time of Arrival
+                {isCancelled ? 'Shipment Status' : 'Estimated Time of Arrival'}
               </div>
-              <EtaCountdown etaMinutes={booking.telemetry.etaMinutes} />
-            </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ textAlign: 'center' }}>
-                <Gauge size={16} color="#5DCAA5" />
-                <div style={{ fontSize: '0.875rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#FFFFFF', marginTop: '2px' }}>
-                  {booking.telemetry.currentSpeedKmh}
+              {/* Bug 1 fix: show static cancelled message — no timer */}
+              {isCancelled ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Timer size={18} color="#D85A30" />
+                  <span style={{ fontSize: '1.125rem', fontWeight: 700, color: '#D85A30' }}>
+                    Trip Cancelled — ETA N/A
+                  </span>
                 </div>
-                <div style={{ fontSize: '0.5625rem', color: '#9DA4B0' }}>KM/H</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <Route size={16} color="#5DCAA5" />
-                <div style={{ fontSize: '0.875rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#FFFFFF', marginTop: '2px' }}>
-                  {booking.telemetry.progressPercent}%
-                </div>
-                <div style={{ fontSize: '0.5625rem', color: '#9DA4B0' }}>DONE</div>
-              </div>
+              ) : (
+                <EtaCountdown etaMinutes={booking.telemetry.etaMinutes} active={isActiveTransit} />
+              )}
             </div>
+            {!isCancelled && (
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <Gauge size={16} color="#5DCAA5" />
+                  <div style={{ fontSize: '0.875rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#FFFFFF', marginTop: '2px' }}>
+                    {booking.telemetry.currentSpeedKmh}
+                  </div>
+                  <div style={{ fontSize: '0.5625rem', color: '#9DA4B0' }}>KM/H</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <Route size={16} color="#5DCAA5" />
+                  <div style={{ fontSize: '0.875rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#FFFFFF', marginTop: '2px' }}>
+                    {booking.telemetry.progressPercent}%
+                  </div>
+                  <div style={{ fontSize: '0.5625rem', color: '#9DA4B0' }}>DONE</div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Checkpoints Timeline */}
