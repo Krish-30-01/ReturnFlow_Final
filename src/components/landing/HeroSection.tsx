@@ -1,6 +1,8 @@
-import React from 'react';
-import { Truck, Store, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { Truck, Store, ArrowRight, ShieldCheck, Zap, Calculator, Map } from 'lucide-react';
 import { HighwayCorridorTelemetryMap } from './HighwayCorridorTelemetryMap';
+import { LiveSavingsCalculator } from './LiveSavingsCalculator';
+import { useInView } from '../../hooks/useInView';
 
 interface HeroSectionProps {
   onSelectPersona: (persona: 'driver' | 'customer') => void;
@@ -8,6 +10,10 @@ interface HeroSectionProps {
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExploreMatching }) => {
+  const [leftRef, leftInView]   = useInView<HTMLDivElement>(0.1);
+  const [rightRef, rightInView] = useInView<HTMLDivElement>(0.1);
+  const [rightTab, setRightTab] = useState<'calculator' | 'map'>('calculator');
+
   return (
     <section className="hero-section" style={{ padding: '64px 0 48px', overflow: 'hidden', position: 'relative', backgroundColor: 'var(--bg-primary)' }}>
       {/* Background soft gradient accents */}
@@ -36,7 +42,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
           }}
         >
           {/* Left Column */}
-          <div style={{ maxWidth: '640px' }} className="animate-fade-in">
+          <div
+            ref={leftRef}
+            className={`scroll-slide-left${leftInView ? ' in-view' : ''}`}
+            style={{ maxWidth: '640px' }}
+          >
             {/* Top Pill */}
             <div
               style={{
@@ -150,14 +160,63 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
             </div>
           </div>
 
-          {/* Right Column — Highway Corridor Telemetry Visual */}
+          {/* Right Column — Tab toggle: Calculator | Live Map */}
           <div
-            style={{
-              borderRadius: '16px',
-              position: 'relative'
-            }}
+            ref={rightRef}
+            className={`scroll-fade-up${rightInView ? ' in-view' : ''}`}
+            style={{ position: 'relative', transitionDelay: '150ms' }}
           >
-            <HighwayCorridorTelemetryMap />
+            {/* Tab switcher pill */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              marginBottom: '16px'
+            }}>
+              <div style={{
+                display: 'inline-flex',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '9999px',
+                padding: '3px',
+                gap: '2px'
+              }}>
+                {([
+                  { key: 'calculator', icon: <Calculator size={13} />, label: 'Savings Calculator' },
+                  { key: 'map',        icon: <Map size={13} />,        label: 'Live Corridor Map'  },
+                ] as const).map(({ key, icon, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setRightTab(key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '6px 14px',
+                      borderRadius: '9999px',
+                      border: 'none',
+                      fontSize: '0.8125rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 180ms var(--ease-out)',
+                      backgroundColor: rightTab === key ? 'var(--surface-2)' : 'transparent',
+                      color: rightTab === key ? 'var(--brand-teal)' : 'var(--text-secondary)',
+                      boxShadow: rightTab === key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                    }}
+                  >
+                    {icon}
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Panel — fade-swap between the two views */}
+            <div key={rightTab} className="animate-fade-in-scale">
+              {rightTab === 'calculator'
+                ? <LiveSavingsCalculator onSelectPersona={onSelectPersona} />
+                : <div style={{ borderRadius: '16px', overflow: 'hidden' }}><HighwayCorridorTelemetryMap /></div>
+              }
+            </div>
           </div>
         </div>
       </div>
