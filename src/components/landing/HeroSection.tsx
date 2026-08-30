@@ -37,7 +37,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: '48px'
           }}
         >
@@ -45,7 +45,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
           <div
             ref={leftRef}
             className={`scroll-slide-left${leftInView ? ' in-view' : ''}`}
-            style={{ maxWidth: '640px' }}
+            style={{ maxWidth: '640px', paddingTop: '12px' }}
           >
             {/* Top Pill */}
             <div
