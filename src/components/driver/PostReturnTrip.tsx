@@ -21,7 +21,7 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
     vehiclePlate: 'TS-07-EA-9912',
     totalCapacityKg: 12000,
     preferredLoadType: 'FMCG / Packaged Goods / Electronics',
-    minPrice: 16500,
+    minPrice: 5200,
     notes: 'Scheduled backhaul return. Containerized closed body with double tarp.'
   });
 

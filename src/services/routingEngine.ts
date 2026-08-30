@@ -113,12 +113,14 @@ export function estimateDurationMin(distanceKm: number): number {
 }
 
 /**
- * Generates a clean dynamic corridor code from two city names (e.g. "HYD-DEL", "MUM-PUN", "MAA-CJB").
+ * Generates a clean dynamic corridor code from two city names.
+ * Strips parenthetical suffixes before extracting the 3-letter code.
+ * Examples: "Hyderabad (Uppal)" → "HYD", "Vijayawada" → "VIJ", "Chennai (Peenya)" → "CHE"
  */
 export function generateCorridorCode(fromName: string, toName: string): string {
-  const cleanFrom = (fromName || '').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'ORG';
-  const cleanTo = (toName || '').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'DST';
-  return `${cleanFrom}-${cleanTo}`;
+  const clean = (s: string) =>
+    (s || '').replace(/\s*\(.*?\)/g, '').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'ORG';
+  return `${clean(fromName)}-${clean(toName)}`;
 }
 
 /**
@@ -131,11 +133,13 @@ export function calculateDistanceAndDuration(from: string, to: string, _corridor
 
   const originCoords = originLoc
     ? { lat: originLoc.lat, lng: originLoc.lng }
-    : { lat: 17.3850, lng: 78.4867 }; // fallback only if completely unresolvable
+    : (console.warn(`[routingEngine] Could not resolve origin: "${from}" — using Hyderabad fallback`),
+       { lat: 17.3850, lng: 78.4867 });
 
   const destinationCoords = destLoc
     ? { lat: destLoc.lat, lng: destLoc.lng }
-    : { lat: 12.9716, lng: 77.5946 };
+    : (console.warn(`[routingEngine] Could not resolve destination: "${to}" — using Bangalore fallback`),
+       { lat: 12.9716, lng: 77.5946 });
 
   const distanceKm = estimateRoadDistanceKm(originCoords, destinationCoords);
   const durationMin = estimateDurationMin(distanceKm);

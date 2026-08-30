@@ -341,7 +341,7 @@ const SEED_TRIPS: DbTripRow[] = [
     booked_capacity: 400,
     departure_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     time_window: '06:00 AM – 10:00 AM',
-    payout: 1500, // 148 km, 400 kg backhaul
+    payout: 920, // 148 km, 400 kg backhaul — ₹2.8/ton-km × 0.4t × 148km + mobilisation
     status: 'active',
     notes: 'Returning from Uppal warehouse delivery. Flatbed with waterproof tarpaulin ready.',
     created_at: new Date(Date.now() - 3600000).toISOString()
@@ -366,7 +366,7 @@ const SEED_TRIPS: DbTripRow[] = [
     booked_capacity: 2500,
     departure_date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
     time_window: '04:00 AM – 08:00 AM',
-    payout: 9200, // 569 km, 2500 kg backhaul
+    payout: 5200, // 569 km, 2500 kg backhaul — ₹2.1/ton-km × 2.5t × 569km + mobilisation
     status: 'active',
     notes: 'Scheduled backhaul return to Bangalore depot. GPS verified, dual drivers.',
     created_at: new Date(Date.now() - 7200000).toISOString()
@@ -390,7 +390,7 @@ const SEED_LOADS: DbLoadRow[] = [
     cargo_type: 'Furniture & Display Fixtures',
     weight: 400,
     weight_unit: 'Kg',
-    budget: 1630, // derived from driver payout 1500 / (1 - 0.08) = 1630
+    budget: 1000, // derived from driver payout 920 / (1 - 0.08) = 1000
     time_window: 'Morning (07:00 AM – 11:00 AM)',
     departure_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     special_instructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
@@ -415,7 +415,7 @@ const SEED_LOADS: DbLoadRow[] = [
     cargo_type: 'FMCG Packaged Goods',
     weight: 2500,
     weight_unit: 'Kg',
-    budget: 10000, // derived from driver payout 9200 / (1 - 0.08) = 10000
+    budget: 5652, // derived from driver payout 5200 / (1 - 0.08) = 5652
     time_window: 'Flexible',
     departure_date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
     special_instructions: 'Palletized cartons. Forklift available at Bangalore dock.',
@@ -436,8 +436,8 @@ const SEED_EARNINGS: EarningsRecord[] = [
     corridor: 'HYD-WAR',
     loadsCount: 1,
     weightKg: 850,
-    amount: 2850,
-    escrowFeeDeducted: 71,
+    amount: 1450,  // 148km × 0.85t × ₹2.8 + mobil, after 2.5% driver fee
+    escrowFeeDeducted: 36,
     status: 'Settled',
     payoutReference: 'UPI-RETURN-883912'
   },
@@ -448,8 +448,8 @@ const SEED_EARNINGS: EarningsRecord[] = [
     corridor: 'HYD-BLR',
     loadsCount: 2,
     weightKg: 2200,
-    amount: 8400,
-    escrowFeeDeducted: 210,
+    amount: 5800,  // 569km × 2.2t × ₹2.1 + mobil × 2 loads
+    escrowFeeDeducted: 145,
     status: 'Settled',
     payoutReference: 'UPI-RETURN-772190'
   },
@@ -460,8 +460,8 @@ const SEED_EARNINGS: EarningsRecord[] = [
     corridor: 'VIJ-HYD',
     loadsCount: 1,
     weightKg: 1100,
-    amount: 3950,
-    escrowFeeDeducted: 98,
+    amount: 2200,  // ~280km × 1.1t × ₹2.1 + mobil
+    escrowFeeDeducted: 55,
     status: 'Settled',
     payoutReference: 'UPI-RETURN-661023'
   },
@@ -472,8 +472,8 @@ const SEED_EARNINGS: EarningsRecord[] = [
     corridor: 'HYD-BLR',
     loadsCount: 1,
     weightKg: 1800,
-    amount: 5200,
-    escrowFeeDeducted: 130,
+    amount: 3400,  // ~400km × 1.8t × ₹2.1 + mobil
+    escrowFeeDeducted: 85,
     status: 'Settled',
     payoutReference: 'UPI-RETURN-550914'
   }
@@ -502,10 +502,10 @@ const SEED_BOOKINGS: Booking[] = [
     goodsType: 'Furniture & Display Fixtures',
     weightKg: 400,
     specialInstructions: 'Handle with care, bubble wrapped display counters for retail store opening.',
-    basePrice: 1500,
-    platformFee: 130,
+    basePrice: 920,
+    platformFee: 80,
     insuranceFee: 150,
-    totalPrice: 1780,
+    totalPrice: 1150,
     paymentMethod: 'UPI',
     escrowStatus: 'Unfunded',
     status: 'Pending Driver Acceptance',
@@ -557,10 +557,10 @@ const SEED_BOOKINGS: Booking[] = [
     goodsType: 'FMCG Packaged Goods',
     weightKg: 2500,
     specialInstructions: 'Palletized cartons. Forklift at dock.',
-    basePrice: 9200,
-    platformFee: 800,
+    basePrice: 5200,
+    platformFee: 452,
     insuranceFee: 150,
-    totalPrice: 10150,
+    totalPrice: 5802,
     paymentMethod: 'UPI',
     escrowStatus: 'Held in Escrow',
     status: 'In Transit',

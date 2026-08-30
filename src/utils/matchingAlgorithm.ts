@@ -316,11 +316,24 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
     : Math.min(99, Math.max(10, Math.round(rawWeightedScore * 100)));
 
   // PRICING: Driver names their price → platform adds 8% on top → retailer pays total.
-  // This is the single source of truth for all price displays in the retailer portal.
+  // Bug 10 fix: respect load.budget as the actual cap the retailer can pay.
+  // If the driver's required price exceeds the budget, reflect that in the score.
   const PLATFORM_RATE = 0.08;
-  const driverPayout = trip.minPrice;                                      // exactly what driver asked
-  const retailerBudget = Math.round(driverPayout / (1 - PLATFORM_RATE));  // e.g. ₹28,000 / 0.92 = ₹30,435
-  const platformFee = retailerBudget - driverPayout;                       // exact 8% cut
+  const driverPayout = trip.minPrice;
+  const requiredRetailerBudget = Math.round(driverPayout / (1 - PLATFORM_RATE));
+  const platformFee = requiredRetailerBudget - driverPayout;
+
+  // Use the lower of (retailer's stated budget) and (driver's required price) as
+  // the displayed calculatedPrice so the UI never shows an unaffordable figure.
+  const retailerBudget = load.budget > 0
+    ? Math.min(load.budget, requiredRetailerBudget)
+    : requiredRetailerBudget;
+
+  // Price compatibility: 1.0 when budget covers the driver's ask, degrades toward 0
+  // when the budget falls short.
+  const budgetCoverage = load.budget > 0
+    ? Math.min(1.0, load.budget / requiredRetailerBudget)
+    : 1.0;
 
   // Keep engine call only for market benchmark data (savings badge, CO₂)
   const distanceKm = estimateRoadDistanceKm(loadCoords.origin, loadCoords.destination);
@@ -334,7 +347,10 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
 
   const calculatedPrice = retailerBudget;
   const marketPrice = pricing.marketPrice;
-  const savingsPercentage = Math.max(10, Math.round(((marketPrice - retailerBudget) / marketPrice) * 100));
+  // Bug 11 fix (savingsPercentage): only show savings when retailerBudget is
+  // genuinely below marketPrice; never clamp a negative value to a false 15%.
+  const rawSavings = Math.round(((marketPrice - calculatedPrice) / marketPrice) * 100);
+  const savingsPercentage = rawSavings > 0 ? rawSavings : 0;
   const co2SavedKg = pricing.co2SavedKg;
 
   // DYNAMIC ALGORITHM INSIGHT: Generated purely from computed factors
@@ -364,7 +380,10 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
     routeOverlapScore: Math.round(fCorridorOverlap * 100),
     capacityScore: Math.round(fCapacityFit * 100),
     timeWindowScore: Math.round(fSchedule * 100),
-    priceScore: Math.round(fDetour * 100),
+    // Bug 15 fix: priceScore now correctly represents budget-compatibility
+    // (how well the retailer's budget covers the driver's required price),
+    // not the detour factor which is already captured in routeOverlapScore.
+    priceScore: Math.round(budgetCoverage * 100),
     calculatedPrice,
     marketPrice,
     savingsPercentage,
