@@ -43,7 +43,7 @@ const FEATURES: FeatureItem[] = [
     icon: <Lock size={22} />,
     iconBg: 'rgba(4, 44, 83, 0.1)',
     iconColor: 'var(--brand-navy)',
-    dark: true
+    badge: 'NEW'
   },
   {
     id: 4,

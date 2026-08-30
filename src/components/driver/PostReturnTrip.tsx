@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Truck, MapPin, IndianRupee, ArrowRight } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Truck, MapPin, IndianRupee, ArrowRight, AlertTriangle } from 'lucide-react';
 import { validateLocationStringAsync } from '../../services/geocodingService';
-import { generateCorridorCode } from '../../services/routingEngine';
+import { generateCorridorCode, calculateDistanceAndDuration } from '../../services/routingEngine';
+import { calculateBackhaulPricing } from '../../services/pricingEngine';
 import { NewTripInput } from '../../types/logistics';
 
 interface PostReturnTripProps {
@@ -25,7 +26,35 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [, setIsValidating] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Bug 3a: compute a live baseline price from the current route + capacity
+  // so we can warn the driver if their reserve price is unreasonably high.
+  const baselinePricing = useMemo(() => {
+    try {
+      const route = calculateDistanceAndDuration(formData.from, formData.to);
+      if (route.distanceKm <= 0) return null;
+      return calculateBackhaulPricing({
+        distanceKm: route.distanceKm,
+        weightKg: formData.totalCapacityKg,
+        vehicleType: formData.vehicleType,
+        corridorId: route.corridorId,
+        isReturnTrip: true,
+      });
+    } catch {
+      return null;
+    }
+  }, [formData.from, formData.to, formData.totalCapacityKg, formData.vehicleType]);
+
+  // Warn when the entered price is more than 3× the computed baseline driver payout
+  const priceWarning = useMemo(() => {
+    if (!baselinePricing || !formData.minPrice) return null;
+    const ceiling = Math.round(baselinePricing.driverPayout * 3);
+    if (formData.minPrice > ceiling) {
+      return `Reserve price ₹${formData.minPrice.toLocaleString()} is more than 3× the estimated market payout of ₹${baselinePricing.driverPayout.toLocaleString()} for this route. Retailers will see a correspondingly high total — confirm this is intentional.`;
+    }
+    return null;
+  }, [formData.minPrice, baselinePricing]);
 
   const handleCapacityStep = (delta: number) => {
     setFormData((prev) => ({
@@ -123,7 +152,10 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
                 type="text"
                 className="form-input"
                 value={formData.from}
-                onChange={(e) => setFormData({ ...formData, from: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, from: e.target.value });
+                  if (errors.from) setErrors((prev) => ({ ...prev, from: '' }));
+                }}
                 placeholder="e.g. Hyderabad (Uppal / Shamshabad)"
                 style={{ paddingLeft: '36px' }}
               />
@@ -143,7 +175,10 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
                 type="text"
                 className="form-input"
                 value={formData.to}
-                onChange={(e) => setFormData({ ...formData, to: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, to: e.target.value });
+                  if (errors.to) setErrors((prev) => ({ ...prev, to: '' }));
+                }}
                 placeholder="e.g. Bangalore (Peenya) / Warangal"
                 style={{ paddingLeft: '36px' }}
               />
@@ -258,6 +293,68 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
               <label className="form-label" htmlFor="trip-price">
                 Minimum Reserve Price (₹) <span className="required">*</span>
               </label>
+
+              {/* Market rate guidance card — shown when route + capacity are filled */}
+              {baselinePricing && (
+                <div style={{
+                  marginBottom: '10px',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--brand-teal-light)',
+                  border: '1px solid rgba(29,158,117,0.25)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--brand-teal)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                      📊 Market Rate for this Route
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '0.8125rem' }}>
+                      <span>
+                        <span style={{ color: 'var(--text-secondary)' }}>Suggested payout: </span>
+                        <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>
+                          ₹{baselinePricing.driverPayout.toLocaleString()}
+                        </strong>
+                      </span>
+                      <span>
+                        <span style={{ color: 'var(--text-secondary)' }}>Retailer pays: </span>
+                        <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>
+                          ₹{baselinePricing.retailerBudget.toLocaleString()}
+                        </strong>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.6875rem' }}> (+8% fee)</span>
+                      </span>
+                      <span>
+                        <span style={{ color: 'var(--text-secondary)' }}>Your savings vs empty: </span>
+                        <strong style={{ color: 'var(--brand-teal)', fontFamily: 'var(--font-mono)' }}>
+                          ₹{baselinePricing.driverPayout.toLocaleString()}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, minPrice: baselinePricing.driverPayout }))}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--brand-teal)',
+                      color: '#fff',
+                      border: 'none',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Use this price
+                  </button>
+                </div>
+              )}
+
               <div style={{ position: 'relative' }}>
                 <input
                   id="trip-price"
@@ -270,6 +367,17 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
                 <IndianRupee size={16} color="#1D9E75" style={{ position: 'absolute', left: '10px', top: '13px' }} />
               </div>
               {errors.minPrice && <div className="form-error">{errors.minPrice}</div>}
+              {!errors.minPrice && priceWarning && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginTop: '6px', padding: '8px 10px', borderRadius: '6px', backgroundColor: 'rgba(186,117,23,0.08)', border: '1px solid rgba(186,117,23,0.25)' }}>
+                  <AlertTriangle size={14} color="var(--brand-amber)" style={{ flexShrink: 0, marginTop: '1px' }} />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--brand-amber)', lineHeight: 1.45 }}>{priceWarning}</span>
+                </div>
+              )}
+              {!errors.minPrice && !priceWarning && formData.minPrice > 0 && (
+                <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Retailer will see ₹{Math.round(formData.minPrice / (1 - 0.08)).toLocaleString()} all-in (your price + 8% platform fee).
+                </div>
+              )}
             </div>
           </div>
 
@@ -302,9 +410,10 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
               type="submit"
               className="btn-primary-teal"
               id="submit-post-trip"
-              style={{ flex: 2, height: '48px' }}
+              disabled={isValidating}
+              style={{ flex: 2, height: '48px', opacity: isValidating ? 0.7 : 1 }}
             >
-              <span>Post Trip to Match Engine</span>
+              <span>{isValidating ? 'Validating Locations...' : 'Post Trip to Match Engine'}</span>
               <ArrowRight size={18} />
             </button>
           </div>
