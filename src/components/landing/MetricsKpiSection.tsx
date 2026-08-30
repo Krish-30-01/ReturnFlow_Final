@@ -14,16 +14,12 @@ const MetricCard: React.FC<{
   inView: boolean;
 }> = ({ icon, iconBg, iconColor, value, label, accent, index, inView }) => (
   <div
-    className={`scroll-fade-up${inView ? ' in-view' : ''}`}
+    className={`card card-hoverable scroll-fade-up${inView ? ' in-view' : ''}`}
     style={{
       borderRadius: 'var(--radius-card)',
       padding: '28px 24px',
       textAlign: 'center',
       transitionDelay: `${index * 100}ms`,
-      backgroundColor: 'rgba(255,255,255,0.06)',
-      border: '1px solid rgba(255,255,255,0.1)',
-      backdropFilter: 'blur(8px)',
-      transition: 'transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out)',
     }}
   >
     <div
@@ -37,7 +33,7 @@ const MetricCard: React.FC<{
         alignItems: 'center',
         justifyContent: 'center',
         margin: '0 auto 14px',
-        boxShadow: `0 4px 12px ${iconColor}33`,
+        boxShadow: `0 4px 12px ${iconColor}22`,
       }}
     >
       {icon}
@@ -48,7 +44,7 @@ const MetricCard: React.FC<{
     >
       {value}
     </div>
-    <div style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.65)', marginTop: '8px', fontWeight: 500 }}>
+    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: 500 }}>
       {label}
     </div>
   </div>
@@ -68,15 +64,15 @@ export const MetricsKpiSection: React.FC = () => {
       ref={sectionRef}
       className="metrics-kpi-section"
       style={{
-        backgroundColor: 'var(--brand-navy)',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        backgroundColor: 'var(--metrics-bg, var(--brand-teal-light))',
+        borderTop: '1px solid var(--metrics-border, rgba(4,44,83,0.10))',
+        borderBottom: '1px solid var(--metrics-border, rgba(4,44,83,0.10))',
         padding: '56px 0',
         position: 'relative',
         overflow: 'hidden',
       }}
     >
-      {/* Subtle mesh on dark band */}
+      {/* Mesh accent — only visible in dark mode */}
       <div style={{
         position: 'absolute', top: '-80px', right: '-60px', width: '400px', height: '400px',
         borderRadius: '50%', pointerEvents: 'none',

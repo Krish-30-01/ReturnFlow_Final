@@ -1430,3 +1430,26 @@ button:focus-visible {
   vertical-align: middle;
   margin-left: 6px;
 }
+
+/* MetricsKpiSection — teal-light in light mode, navy in dark mode (Revolut pattern) */
+:root {
+  --metrics-bg: var(--brand-teal-light);
+  --metrics-border: rgba(4, 44, 83, 0.10);
+}
+
+[data-theme="dark"] .metrics-kpi-section,
+.dark .metrics-kpi-section {
+  --metrics-bg: var(--brand-navy);
+  --metrics-border: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .metrics-kpi-section .card,
+.dark .metrics-kpi-section .card {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .metrics-kpi-section .card .stat-number + div,
+.dark .metrics-kpi-section .card .stat-number + div {
+  color: rgba(255, 255, 255, 0.65);
+}
