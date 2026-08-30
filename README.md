@@ -287,7 +287,7 @@ Most freight platforms focus on primary hauls (forward logistics). ReturnFlow is
 
 ## The Team
 
-Built with ❤️ by a team of six engineers for Smart India Hackathon 2024:
+Built with ❤️ by a team of six engineers for Smart India Hackathon 2026:
 
 - **Krish Sureja** – Full-stack architect, pricing engine, match algorithm
 - **Harshit Sajjanapu** – Frontend lead, UI/UX design system
