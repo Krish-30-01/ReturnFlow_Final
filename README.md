@@ -71,18 +71,7 @@ This isn't just a tech demo. This is about **unlocking ₹60,000 crore in strand
 - **30-40%** shipper savings vs spot broker rates (verified live in our pricing engine)
 - **8.5 kg CO₂ avoided** per ton per 100 km by filling empty trucks instead of dispatching new ones *(ICCT emissions data)*
 
-### What Judges Will See
-When you demo ReturnFlow, here's what makes it hackathon-grade:
 
-✅ **No hardcoded data**: All prices computed live from MoRTH diesel rates + corridor geometry  
-✅ **Production-ready geocoding**: Hybrid gazetteer + OSM API architecture (Google Maps swap = 10 lines)  
-✅ **Real routing math**: Haversine distance + corridor waypoint geometry for accurate detour calculation  
-✅ **Honest metrics**: Every KPI on the landing page cites a real source (MoRTH, CRISIL, ICCT)  
-✅ **Type-safe & tested**: TypeScript 6.0, Vite 8, tsc --noEmit passes clean  
-✅ **Supabase-backed**: PostgreSQL schema with PostGIS extensions for geospatial queries (see `supabase/schema.sql`)  
-✅ **Mobile-responsive**: Glassmorphic design system with light/dark mode toggle  
-
----
 
 ## Tech Stack
 
