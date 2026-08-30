@@ -17,15 +17,19 @@ import {
   Tooltip,
   CartesianGrid
 } from 'recharts';
-import { LoadRequest } from '../../types/logistics';
+import { LoadRequest, Booking, BOOKING_STATUS } from '../../types/logistics';
 import { formatCurrency } from '../../utils/formatting';
 import { useCountUp } from '../../hooks/useCountUp';
+import { AppUser } from '../../services/authService';
 
 interface CustomerDashboardProps {
   loads: LoadRequest[];
+  bookings?: Booking[];
+  authUser?: AppUser | null;
   onNavigate: (page: string) => void;
   onSelectLoad: (loadId: string) => void;
   onBrowseMatches: (loadId: string) => void;
+  onPayBooking?: (bookingId: string) => void;
   onCancelLoad?: (loadId: string) => void;
 }
 
@@ -39,9 +43,12 @@ const SAVINGS_TREND_DATA = [
 
 export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   loads,
+  bookings = [],
+  authUser,
   onNavigate,
   onSelectLoad,
   onBrowseMatches,
+  onPayBooking,
   onCancelLoad
 }) => {
   const [hoveredLoadId, setHoveredLoadId] = useState<string | null>(null);
@@ -70,8 +77,17 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     <div className="customer-dashboard-view animate-fade-in">
       {/* Action Toast Feedback */}
       {feedbackToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#0F172A] text-white border border-[#BA7517]/40 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-fade-in text-sm font-mono">
-          <span className="w-2 h-2 rounded-full bg-[#BA7517] animate-ping" />
+        <div style={{
+          position: 'fixed', bottom: '24px', right: '24px', zIndex: 50,
+          background: '#0F172A', color: '#FFFFFF',
+          border: '1px solid rgba(186,117,23,0.4)',
+          padding: '12px 16px', borderRadius: '12px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', gap: '10px',
+          fontSize: '0.875rem', fontFamily: 'var(--font-mono)',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#BA7517', flexShrink: 0 }} />
           <span>{feedbackToast}</span>
         </div>
       )}
@@ -80,10 +96,10 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', color: 'var(--brand-navy)', marginBottom: '4px' }}>
-            Welcome, Priya!
+            Welcome, {authUser?.name?.split(' ')[0] || 'Shipper'}!
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>
-            Company: <strong style={{ color: 'var(--brand-navy)' }}>Apex Retail Networks Pvt Ltd</strong> · Regional Logistics Hub
+            {authUser?.company ? <><strong style={{ color: 'var(--brand-navy)' }}>{authUser.company}</strong> · </> : ''}Regional Logistics Hub
           </p>
         </div>
 
@@ -118,7 +134,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Package size={20} color="#BA7517" />
                 <h3 style={{ fontSize: '1.125rem', color: 'var(--brand-navy)', margin: 0 }}>
-                  Active Load Requests ({activeLoads.length})
+                  Active Consignment Requests ({activeLoads.length})
                 </h3>
               </div>
               <button
@@ -132,9 +148,22 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
             {/* Loads List with Hover Quick-Actions */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {activeLoads.length === 0 && (
+                <div className="empty-state" style={{ padding: '32px 16px' }}>
+                  <div className="empty-state-icon">📦</div>
+                  <div className="empty-state-title">No active consignments</div>
+                  <p className="empty-state-desc">Post your first load request to match with returning trucks at 35% lower rates.</p>
+                  <button className="btn-primary-amber btn-sm" onClick={() => onNavigate('customer-post-load')}>
+                    Post Load Request
+                  </button>
+                </div>
+              )}
               {activeLoads.map((load) => {
-                const isSearching = load.status === 'Searching';
+                const isSearching = load.status === BOOKING_STATUS.SEARCHING;
+                const isPendingAcceptance = load.status === BOOKING_STATUS.PENDING_DRIVER_ACCEPTANCE;
+                const isAwaitingPayment = load.status === BOOKING_STATUS.AWAITING_PAYMENT;
                 const isHovered = hoveredLoadId === load.id;
+                const relatedBooking = bookings.find((b) => b.loadId === load.id || b.id === load.bookingId);
 
                 return (
                   <div
@@ -146,6 +175,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       onSelectLoad(load.id);
                       if (isSearching) {
                         onBrowseMatches(load.id);
+                      } else if (isAwaitingPayment && (load.bookingId || relatedBooking)) {
+                        onPayBooking?.(load.bookingId || relatedBooking!.id);
                       } else {
                         onNavigate('tracking');
                       }
@@ -154,7 +185,11 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       padding: '18px',
                       backgroundColor: 'var(--surface-2)',
                       borderRadius: 'var(--radius-md)',
-                      border: isHovered ? '1.5px solid var(--brand-amber)' : '1px solid var(--border-color)',
+                      border: isAwaitingPayment
+                        ? '2px solid var(--brand-teal)'
+                        : isHovered
+                        ? '1.5px solid var(--brand-amber)'
+                        : '1px solid var(--border-color)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '12px',
@@ -183,7 +218,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                           transform: isHovered ? 'translateY(0)' : 'translateY(1px)'
                         }}
                       >
-                        {isSearching ? (
+                        {isSearching && (
                           <button
                             className="btn-primary-amber btn-sm"
                             onClick={(e) => { e.stopPropagation(); onSelectLoad(load.id); onBrowseMatches(load.id); }}
@@ -193,7 +228,41 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                             <span>Find Matches</span>
                             <ArrowRight size={13} />
                           </button>
-                        ) : (
+                        )}
+
+                        {isPendingAcceptance && (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--brand-amber)',
+                              fontWeight: 600,
+                              backgroundColor: 'var(--brand-amber-light)',
+                              padding: '4px 8px',
+                              borderRadius: '6px'
+                            }}
+                          >
+                            Awaiting Driver
+                          </span>
+                        )}
+
+                        {isAwaitingPayment && (
+                          <button
+                            className="btn-primary-teal btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const targetId = load.bookingId || relatedBooking?.id;
+                              if (targetId) onPayBooking?.(targetId);
+                            }}
+                            style={{ height: '32px', padding: '4px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+                            title="Driver Accepted — Pay & Lock Escrow"
+                            id={`pay-securely-btn-${load.id}`}
+                          >
+                            <span>Pay Securely</span>
+                            <ArrowRight size={14} />
+                          </button>
+                        )}
+
+                        {!isSearching && !isPendingAcceptance && !isAwaitingPayment && (
                           <button
                             className="btn-outline-teal btn-sm"
                             onClick={(e) => { e.stopPropagation(); onSelectLoad(load.id); onNavigate('tracking'); }}
@@ -227,24 +296,46 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       </div>
                     </div>
 
-                      {/* Status Row with Live Pulse Dots */}
+                    {/* Status Row with Live Pulse Dots */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {isSearching ? (
+                        {isSearching && (
                           <span className="status-pill status-searching" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             <span className="status-dot-pulse" />
                             <span>Searching for Return Trucks</span>
                           </span>
-                        ) : (
+                        )}
+                        {isPendingAcceptance && (
+                          <span className="status-pill status-searching" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="status-dot-pulse" />
+                            <span>Pending Driver Acceptance (No payment charged)</span>
+                          </span>
+                        )}
+                        {isAwaitingPayment && (
+                          <span className="status-pill status-in-transit" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'var(--brand-teal-light)', color: 'var(--brand-teal)' }}>
+                            <span className="status-dot-pulse" />
+                            <span>Driver Accepted! Ready for Payment</span>
+                          </span>
+                        )}
+                        {!isSearching && !isPendingAcceptance && !isAwaitingPayment && (
                           <span className="status-pill status-in-transit" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             <span className="status-dot-pulse" />
-                            <span>{load.status} (In Transit)</span>
+                            <span>{load.status} (Escrow Secured)</span>
                           </span>
                         )}
                       </div>
 
                       <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>
-                        Budget: {formatCurrency(load.budget)}
+                        {relatedBooking
+                          ? <>
+                              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', fontWeight: 500, marginRight: '4px' }}>Total Charge:</span>
+                              {formatCurrency(relatedBooking.totalPrice)}
+                            </>
+                          : <>
+                              <span style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', fontWeight: 500, marginRight: '4px' }}>Budget:</span>
+                              {formatCurrency(load.budget)}
+                            </>
+                        }
                       </span>
                     </div>
                   </div>
@@ -358,7 +449,18 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       {dl.date} · {dl.goodsType} ({dl.weight} {dl.weightUnit})
                     </div>
                     <div style={{ fontSize: '0.6875rem', color: 'var(--brand-teal)', marginTop: '3px', fontWeight: 600 }}>
-                      Saved ₹1,800 vs standalone spot freight
+                      {(() => {
+                        const relB = bookings.find((b) => b.loadId === dl.id);
+                        if (relB) {
+                          const saved = relB.marketPrice
+                            ? relB.marketPrice - relB.totalPrice
+                            : 0;
+                          return saved > 0
+                            ? `Saved ${formatCurrency(saved)} vs spot rate · Paid ${formatCurrency(relB.totalPrice)}`
+                            : `Paid ${formatCurrency(relB.totalPrice)} (backhaul rate)`;
+                        }
+                        return 'Backhaul rate applied';
+                      })()}
                     </div>
                   </div>
                 ))}

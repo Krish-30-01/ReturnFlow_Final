@@ -23,7 +23,7 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
   const [expandedScoreCard, setExpandedScoreCard] = useState<string | null>(null);
 
   const filteredMatches = matches.filter(
-    (m) => m.matchScore >= minScore && m.calculatedPrice <= maxPrice
+    (m) => m.matchScore >= minScore && (m.calculatedPrice + 150) <= maxPrice
   );
 
   return (
@@ -88,7 +88,7 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
 
             <div>
               <label className="form-label" style={{ fontSize: '0.8125rem' }}>
-                Max Budget Filter: <strong>{formatCurrency(maxPrice)}</strong>
+                Max All-In Budget: <strong>{formatCurrency(maxPrice)}</strong>
               </label>
               <input
                 type="range"
@@ -195,8 +195,11 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                         </div>
                       </div>
 
-                      {/* Price & Savings */}
+                      {/* Price & Savings — always shows retailer all-in total */}
                       <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '2px' }}>
+                          You Pay (All-In)
+                        </div>
                         <div
                           style={{
                             fontSize: '1.5rem',
@@ -205,9 +208,13 @@ export const MatchesSearchResults: React.FC<MatchesSearchResultsProps> = ({
                             fontFamily: 'var(--font-mono)'
                           }}
                         >
-                          {formatCurrency(match.calculatedPrice)}
+                          {formatCurrency(match.calculatedPrice + 150)}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', marginTop: '2px' }}>
+                        {/* Mini breakdown: freight · fee · insurance */}
+                        <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', marginTop: '3px', lineHeight: 1.5 }}>
+                          {formatCurrency(match.calculatedPrice)} freight · +8% fee · +₹150 ins.
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', marginTop: '4px' }}>
                           <span style={{ textDecoration: 'line-through', fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                             {formatCurrency(match.marketPrice)}
                           </span>
