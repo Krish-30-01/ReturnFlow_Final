@@ -12,7 +12,7 @@ export const DualPersonaSection: React.FC<DualPersonaSectionProps> = ({ onSelect
   const [cardBRef, cardBInView]   = useInView<HTMLDivElement>(0.12);
 
   return (
-    <section className="dual-persona-section" style={{ padding: '48px 0 64px' }}>
+    <section className="dual-persona-section" style={{ padding: '24px 0 64px' }}>
       <div className="container">
 
         {/* Section Header */}

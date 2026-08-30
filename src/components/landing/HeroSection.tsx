@@ -15,7 +15,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
   const [rightTab, setRightTab] = useState<'calculator' | 'map'>('calculator');
 
   return (
-    <section className="hero-section" style={{ padding: '64px 0 48px', overflow: 'hidden', position: 'relative', backgroundColor: 'var(--bg-primary)' }}>
+    <section className="hero-section" style={{ padding: '64px 0 24px', overflow: 'hidden', position: 'relative', backgroundColor: 'var(--bg-primary)' }}>
       {/* Stripe-style gradient mesh backdrop */}
       <div
         style={{
