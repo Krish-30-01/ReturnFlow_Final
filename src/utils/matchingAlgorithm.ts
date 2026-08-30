@@ -361,10 +361,13 @@ export function calculateMatchScore(trip: Trip, load: LoadRequest): MatchResult 
     const scheduleText = scheduleDiffDays === 0 ? 'same-day departure' : `${scheduleDiffDays}-day schedule difference`;
     const capacityText = `${loadWeight.toLocaleString()} Kg load utilizes ${utilizationPct}% of ${availableCapacity.toLocaleString()} Kg spare capacity`;
     const detourText = geom.extraDetourKm <= 2 ? '0 km detour' : `~${geom.extraDetourKm} km route detour`;
-    const driverPayoutText = `Driver payout ₹${driverPayout.toLocaleString()} (platform fee ₹${platformFee.toLocaleString()})`;
+    // Use retailerBudget-derived payout so the insight always matches the displayed price
+    const displayedDriverPayout = Math.round(retailerBudget * (1 - PLATFORM_RATE));
+    const displayedPlatformFee  = retailerBudget - displayedDriverPayout;
+    const driverPayoutText = `Shipper pays ₹${retailerBudget.toLocaleString()} (driver earns ₹${displayedDriverPayout.toLocaleString()}, platform fee ₹${displayedPlatformFee.toLocaleString()})`;
 
     if (matchScore >= 90) {
-      explanation = `High-efficiency match: ${geom.description}. ${capacityText} with ${scheduleText} and ${detourText}. ${driverPayoutText} (saves ₹${(marketPrice - calculatedPrice).toLocaleString()} vs spot rate).`;
+      explanation = `High-efficiency match: ${geom.description}. ${capacityText} with ${scheduleText} and ${detourText}. ${driverPayoutText} (saves ₹${(marketPrice - retailerBudget).toLocaleString()} vs spot rate).`;
     } else if (matchScore >= 70) {
       explanation = `Strong compatibility: ${geom.description}. ${capacityText} (${scheduleText}, ${detourText}). ${driverPayoutText}.`;
     } else {
