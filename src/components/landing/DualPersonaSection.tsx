@@ -1,6 +1,5 @@
 import React from 'react';
 import { Truck, Store, CheckCircle, ArrowRight, ShieldCheck, Zap, TrendingUp, Clock } from 'lucide-react';
-
 import { useInView } from '../../hooks/useInView';
 
 interface DualPersonaSectionProps {
@@ -15,14 +14,28 @@ export const DualPersonaSection: React.FC<DualPersonaSectionProps> = ({ onSelect
   return (
     <section className="dual-persona-section" style={{ padding: '48px 0 64px' }}>
       <div className="container">
+
         {/* Section Header */}
         <div
           ref={headerRef}
           className={`scroll-fade-up${headerInView ? ' in-view' : ''}`}
           style={{ textAlign: 'center', maxWidth: '680px', margin: '0 auto 40px' }}
+        >
           <div className="eyebrow-pill eyebrow-pill-navy" style={{ marginBottom: '12px' }}>
             Tailored For Both Freight Sides
-          </div>lay: 'grid',
+          </div>
+          <h2 style={{ color: 'var(--brand-navy)', marginBottom: '12px' }}>
+            Two Specialized Gateways, One Shared Economy
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.0625rem' }}>
+            Whether you command a 10-truck fleet or operate regional retail outlets, ReturnFlow eliminates friction on both ends of the freight line.
+          </p>
+        </div>
+
+        {/* Cards Grid */}
+        <div
+          style={{
+            display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
             gap: '28px'
           }}
@@ -58,7 +71,7 @@ export const DualPersonaSection: React.FC<DualPersonaSectionProps> = ({ onSelect
                 </div>
                 <div>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--brand-teal)', letterSpacing: '0.5px' }}>
-                    For Truck Owners & Fleet Drivers
+                    For Truck Owners &amp; Fleet Drivers
                   </span>
                   <h3 style={{ color: 'var(--brand-navy)', fontSize: '1.5rem', marginTop: '2px' }}>Earn on Every Return</h3>
                 </div>
@@ -131,7 +144,7 @@ export const DualPersonaSection: React.FC<DualPersonaSectionProps> = ({ onSelect
                 </div>
                 <div>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--brand-amber)', letterSpacing: '0.5px' }}>
-                    For Retailers & B2B Shippers
+                    For Retailers &amp; B2B Shippers
                   </span>
                   <h3 style={{ color: 'var(--brand-navy)', fontSize: '1.5rem', marginTop: '2px' }}>Save 35% on Shipping</h3>
                 </div>
