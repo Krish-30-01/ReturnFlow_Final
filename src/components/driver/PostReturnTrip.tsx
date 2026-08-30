@@ -295,65 +295,57 @@ export const PostReturnTrip: React.FC<PostReturnTripProps> = ({ onSubmitTrip, on
               </label>
 
               {/* Market rate guidance card — shown when route + capacity are filled */}
-              {baselinePricing && (
-                <div style={{
-                  marginBottom: '10px',
-                  padding: '12px 14px',
-                  borderRadius: '10px',
-                  backgroundColor: 'var(--brand-teal-light)',
-                  border: '1px solid rgba(29,158,117,0.25)',
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}>
-                  <div>
-                    <div style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--brand-teal)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              {baselinePricing && (() => {
+                const route = calculateDistanceAndDuration(formData.from, formData.to);
+                const perTonKm = route.distanceKm > 0
+                  ? Math.round(baselinePricing.driverPayout / ((formData.totalCapacityKg / 1000) * route.distanceKm))
+                  : 0;
+                return (
+                  <div style={{
+                    marginBottom: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    backgroundColor: 'var(--brand-teal-light)',
+                    border: '1px solid rgba(29,158,117,0.25)',
+                  }}>
+                    <div style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--brand-teal)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
                       📊 Market Rate for this Route
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '0.8125rem' }}>
-                      <span>
-                        <span style={{ color: 'var(--text-secondary)' }}>Suggested payout: </span>
-                        <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>
-                          ₹{baselinePricing.driverPayout.toLocaleString()}
-                        </strong>
-                      </span>
-                      <span>
-                        <span style={{ color: 'var(--text-secondary)' }}>Retailer pays: </span>
-                        <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>
-                          ₹{baselinePricing.retailerBudget.toLocaleString()}
-                        </strong>
-                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.6875rem' }}> (+8% fee)</span>
-                      </span>
-                      <span>
-                        <span style={{ color: 'var(--text-secondary)' }}>Your savings vs empty: </span>
-                        <strong style={{ color: 'var(--brand-teal)', fontFamily: 'var(--font-mono)' }}>
-                          ₹{baselinePricing.driverPayout.toLocaleString()}
-                        </strong>
-                      </span>
+
+                    {/* Formula breakdown so driver sees distance + weight driving the number */}
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '10px', fontFamily: 'var(--font-mono)', backgroundColor: 'var(--surface-2)', padding: '6px 10px', borderRadius: '6px' }}>
+                      {route.distanceKm} km &nbsp;×&nbsp; {(formData.totalCapacityKg / 1000).toFixed(1)} tons &nbsp;×&nbsp; ₹{perTonKm}/ton-km &nbsp;=&nbsp;
+                      <strong style={{ color: 'var(--brand-teal)' }}>₹{baselinePricing.driverPayout.toLocaleString()}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '0.8125rem' }}>
+                        <span>
+                          <span style={{ color: 'var(--text-secondary)' }}>Suggested payout: </span>
+                          <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>₹{baselinePricing.driverPayout.toLocaleString()}</strong>
+                        </span>
+                        <span>
+                          <span style={{ color: 'var(--text-secondary)' }}>Retailer pays: </span>
+                          <strong style={{ color: 'var(--brand-navy)', fontFamily: 'var(--font-mono)' }}>₹{baselinePricing.retailerBudget.toLocaleString()}</strong>
+                          <span style={{ color: 'var(--text-tertiary)', fontSize: '0.6875rem' }}> (+8% fee)</span>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, minPrice: baselinePricing.driverPayout }))}
+                        style={{
+                          padding: '6px 14px', borderRadius: '6px',
+                          backgroundColor: 'var(--brand-teal)', color: '#fff',
+                          border: 'none', fontSize: '0.75rem', fontWeight: 600,
+                          cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                        }}
+                      >
+                        Use this price
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, minPrice: baselinePricing.driverPayout }))}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: '6px',
-                      backgroundColor: 'var(--brand-teal)',
-                      color: '#fff',
-                      border: 'none',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                    }}
-                  >
-                    Use this price
-                  </button>
-                </div>
-              )}
+                );
+              })()}
 
               <div style={{ position: 'relative' }}>
                 <input
