@@ -1,5 +1,6 @@
 import React from 'react';
 import { Truck, Store, CheckCircle, ArrowRight, ShieldCheck, Zap, TrendingUp, Clock } from 'lucide-react';
+
 import { useInView } from '../../hooks/useInView';
 
 interface DualPersonaSectionProps {
@@ -19,35 +20,9 @@ export const DualPersonaSection: React.FC<DualPersonaSectionProps> = ({ onSelect
           ref={headerRef}
           className={`scroll-fade-up${headerInView ? ' in-view' : ''}`}
           style={{ textAlign: 'center', maxWidth: '680px', margin: '0 auto 40px' }}
-        >
-          <div
-            style={{
-              display: 'inline-block',
-              padding: '4px 12px',
-              borderRadius: 'var(--radius-pill)',
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-secondary)',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: '12px'
-            }}
-          >
+          <div className="eyebrow-pill eyebrow-pill-navy" style={{ marginBottom: '12px' }}>
             Tailored For Both Freight Sides
-          </div>
-          <h2 style={{ color: 'var(--brand-navy)', marginBottom: '12px' }}>
-            Two Specialized Gateways, One Shared Economy
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.0625rem' }}>
-            Whether you command a 10-truck fleet or operate regional retail outlets, ReturnFlow eliminates friction on both ends of the freight line.
-          </p>
-        </div>
-
-        {/* Cards Grid */}
-        <div
-          style={{
-            display: 'grid',
+          </div>lay: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
             gap: '28px'
           }}
