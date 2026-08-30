@@ -55,7 +55,9 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({
           padding: '32px',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-md)',
-          border: '1px solid var(--border-color)'
+          border: '1px solid var(--border-color)',
+          position: 'sticky',
+          top: '80px',
         }}
       >
         {/* Header */}

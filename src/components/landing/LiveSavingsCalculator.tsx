@@ -107,7 +107,7 @@ export const LiveSavingsCalculator: React.FC<LiveSavingsCalculatorProps> = ({ on
   return (
     <div
       style={{
-        backgroundColor: 'var(--surface-2)',
+        backgroundColor: 'var(--bg-secondary)',
         padding: '28px',
         position: 'relative',
         overflow: 'hidden',
@@ -200,7 +200,7 @@ export const LiveSavingsCalculator: React.FC<LiveSavingsCalculatorProps> = ({ on
                   border: corridorKey === c.key
                     ? '1.5px solid var(--brand-teal)'
                     : '1px solid var(--border-color)',
-                  backgroundColor: corridorKey === c.key ? 'var(--brand-teal-light)' : 'var(--surface-3)',
+                  backgroundColor: corridorKey === c.key ? 'var(--brand-teal-light)' : 'var(--surface-2)',
                   color: corridorKey === c.key ? 'var(--brand-teal)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   transition: 'all 150ms ease',

@@ -1114,3 +1114,319 @@ button:focus-visible {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Scroll-triggered entrance animations (Task #2)
+   Elements start hidden; useInView adds .in-view to trigger the animation.
+   ========================================================================== */
+
+/* Base hidden state — applied before element enters the viewport */
+.scroll-fade-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.55s var(--ease-out), transform 0.55s var(--ease-out);
+}
+
+.scroll-fade-up.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Staggered children — set --stagger-index inline on each child */
+.scroll-stagger-children > * {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+  transition-delay: calc(var(--stagger-index, 0) * 90ms);
+}
+
+.scroll-stagger-children.in-view > * {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Fade-in only (for elements that shouldn't move) */
+.scroll-fade {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease-out);
+}
+
+.scroll-fade.in-view {
+  opacity: 1;
+}
+
+/* Slide in from left */
+.scroll-slide-left {
+  opacity: 0;
+  transform: translateX(-32px);
+  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+}
+
+.scroll-slide-left.in-view {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ==========================================================================
+   Feature card icon spin on hover (Task #5)
+   ========================================================================== */
+.card-hoverable:hover .feature-icon,
+.card:hover .feature-icon {
+  transform: rotate(360deg);
+}
+
+/* ==========================================================================
+   Chat drawer slide-in from RIGHT (Task #6)
+   ========================================================================== */
+@keyframes slideInFromRight {
+  from { opacity: 0.4; transform: translateX(100%); }
+  to   { opacity: 1;   transform: translateX(0);    }
+}
+
+.chat-drawer-panel {
+  animation: slideInFromRight 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+/* ==========================================================================
+   Skeleton / shimmer cards for loading states (Task #9)
+   ========================================================================== */
+@keyframes skeletonShimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0;  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary)   0%,
+    var(--border-light)   40%,
+    var(--bg-secondary)   80%
+  );
+  background-size: 800px 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+.skeleton-card {
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.skeleton-line-sm { height: 10px; border-radius: 5px; }
+.skeleton-line-lg { height: 16px; border-radius: 8px; }
+
+/* ==========================================================================
+   Empty-state cards (Task #9)
+   ========================================================================== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+  border: 1.5px dashed var(--border-color);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-3);
+  gap: 12px;
+}
+
+.empty-state-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  filter: grayscale(0.3);
+}
+
+.empty-state-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--brand-navy);
+}
+
+.empty-state-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.55;
+}
+
+/* Testimonial slide fade transition (Task #3) */
+@keyframes testimonialFadeIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);     }
+}
+
+.testimonial-content-enter {
+  animation: testimonialFadeIn 0.35s var(--ease-out) both;
+}
+
+/* ==========================================================================
+   Design System Improvements — Stripe / Wise / Airbnb / Linear / Revolut
+   ========================================================================== */
+
+/* #4 — Stripe: tabular-nums on ALL currency / numeric displays */
+.mono-text,
+.stat-number,
+.driver-payout-badge .payout-amount,
+[class*="font-mono"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* #2/#5 — Stripe/Linear: standardized eyebrow pill token */
+.eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.eyebrow-pill-teal {
+  background: var(--brand-teal-light);
+  color: var(--brand-teal);
+  border: 1px solid rgba(29, 158, 117, 0.2);
+}
+
+.eyebrow-pill-amber {
+  background: var(--brand-amber-light);
+  color: var(--brand-amber);
+  border: 1px solid rgba(186, 117, 23, 0.2);
+}
+
+.eyebrow-pill-navy {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+/* #6/#7 — Wise: positive / negative badge variants */
+.badge-positive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-teal-light);
+  color: #054d28;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid rgba(29, 158, 117, 0.25);
+}
+
+.badge-negative {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-coral-light);
+  color: var(--brand-coral);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid rgba(216, 90, 48, 0.25);
+}
+
+.badge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-amber-light);
+  color: var(--brand-amber);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid rgba(186, 117, 23, 0.25);
+}
+
+[data-theme="dark"] .badge-positive,
+.dark .badge-positive {
+  background-color: rgba(45, 212, 191, 0.14);
+  color: #2DD4BF;
+  border-color: rgba(45, 212, 191, 0.3);
+}
+
+[data-theme="dark"] .badge-negative,
+.dark .badge-negative {
+  background-color: rgba(216, 90, 48, 0.18);
+  color: #FCA5A5;
+  border-color: rgba(216, 90, 48, 0.35);
+}
+
+/* Linear dark terminal frame — used around map widget */
+.terminal-frame {
+  background: #0f1011;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #23252a;
+  box-shadow: 0 20px 48px rgba(0,0,0,0.4);
+}
+
+.terminal-frame-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #18191a;
+  border-bottom: 1px solid #23252a;
+}
+
+.terminal-frame-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.terminal-frame-dots span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+/* Airbnb NEW micro-badge */
+.micro-badge-new {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-teal);
+  color: #fff;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 1.2;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.micro-badge-beta {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-amber-light);
+  color: var(--brand-amber);
+  border: 1px solid rgba(186,117,23,0.3);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 1.2;
+  vertical-align: middle;
+  margin-left: 6px;
+}

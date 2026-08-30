@@ -16,21 +16,38 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
 
   return (
     <section className="hero-section" style={{ padding: '64px 0 48px', overflow: 'hidden', position: 'relative', backgroundColor: 'var(--bg-primary)' }}>
-      {/* Background soft gradient accents */}
+      {/* Stripe-style gradient mesh backdrop */}
       <div
         style={{
           position: 'absolute',
-          top: '-10%',
-          right: '5%',
-          width: '500px',
-          height: '500px',
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(13, 148, 136, 0.12) 0%, rgba(37, 99, 235, 0.06) 50%, transparent 70%)',
-          filter: 'blur(40px)',
+          inset: 0,
           zIndex: 0,
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          overflow: 'hidden',
         }}
-      />
+      >
+        {/* Mesh blob 1 — teal top-right */}
+        <div style={{
+          position: 'absolute', top: '-80px', right: '-40px',
+          width: '520px', height: '520px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(29,158,117,0.18) 0%, rgba(2,132,199,0.09) 45%, transparent 70%)',
+          filter: 'blur(48px)',
+        }} />
+        {/* Mesh blob 2 — amber mid-left */}
+        <div style={{
+          position: 'absolute', top: '30%', left: '-80px',
+          width: '380px', height: '380px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(186,117,23,0.12) 0%, transparent 65%)',
+          filter: 'blur(40px)',
+        }} />
+        {/* Mesh blob 3 — navy bottom center */}
+        <div style={{
+          position: 'absolute', bottom: '-60px', left: '35%',
+          width: '440px', height: '300px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(4,44,83,0.08) 0%, transparent 70%)',
+          filter: 'blur(36px)',
+        }} />
+      </div>
 
       <div className="container" style={{ position: 'relative', zIndex: 1 }}>
         <div
@@ -223,7 +240,26 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
             }}>
               {rightTab === 'calculator'
                 ? <LiveSavingsCalculator onSelectPersona={onSelectPersona} />
-                : <div><HighwayCorridorTelemetryMap /></div>
+                : (
+                  /* Linear-style dark terminal frame for the map */
+                  <div className="terminal-frame" style={{ borderRadius: '0 0 20px 20px' }}>
+                    <div className="terminal-frame-topbar">
+                      <div className="terminal-frame-dots">
+                        <span style={{ background: '#FF5F57' }} />
+                        <span style={{ background: '#FEBC2E' }} />
+                        <span style={{ background: '#28C840' }} />
+                      </div>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#868685', fontFamily: 'var(--font-mono)', letterSpacing: '0.4px' }}>
+                        LIVE · NH CORRIDOR TELEMETRY
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#28C840', boxShadow: '0 0 6px #28C840' }} />
+                        <span style={{ fontSize: '0.6rem', color: '#868685', fontFamily: 'var(--font-mono)' }}>CONNECTED</span>
+                      </div>
+                    </div>
+                    <HighwayCorridorTelemetryMap />
+                  </div>
+                )
               }
             </div>
           </div>

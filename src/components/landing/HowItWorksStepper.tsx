@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, CheckCircle2, ShieldCheck, ArrowRight, Store, IndianRupee } from 'lucide-react';
+import { useInView } from '../../hooks/useInView';
 
 interface StepData {
   id: number;
@@ -48,6 +49,8 @@ const STEPS: StepData[] = [
 export const HowItWorksStepper: React.FC = () => {
   const [activeStep, setActiveStep] = useState(1);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [headerRef, headerInView] = useInView<HTMLDivElement>();
+  const [contentRef, contentInView] = useInView<HTMLDivElement>(0.1);
 
   useEffect(() => {
     if (!isAutoPlaying) return;
@@ -68,23 +71,13 @@ export const HowItWorksStepper: React.FC = () => {
     <section className="how-it-works-section" style={{ padding: '64px 0', backgroundColor: 'var(--surface-3)' }}>
       <div className="container">
         {/* Section Title */}
-        <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 48px' }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 12px',
-              borderRadius: 'var(--radius-pill)',
-              background: 'var(--brand-teal-light)',
-              color: 'var(--brand-teal)',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              letterSpacing: '0.5px',
-              marginBottom: '12px'
-            }}
-          >
-            <Cpu size={14} />
+        <div
+          ref={headerRef}
+          className={`scroll-fade-up${headerInView ? ' in-view' : ''}`}
+          style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 48px' }}
+        >
+          <div className="eyebrow-pill eyebrow-pill-teal" style={{ marginBottom: '12px' }}>
+            <Cpu size={13} />
             <span>HOW IT WORKS</span>
           </div>
           <h2 style={{ color: 'var(--brand-navy)', marginBottom: '12px' }}>
@@ -97,11 +90,14 @@ export const HowItWorksStepper: React.FC = () => {
 
         {/* Stepper Container */}
         <div
+          ref={contentRef}
+          className={`scroll-fade-up${contentInView ? ' in-view' : ''}`}
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
             gap: '32px',
-            alignItems: 'center'
+            alignItems: 'center',
+            transitionDelay: '100ms',
           }}
         >
           {/* Left Column: Steps List */}
@@ -363,7 +359,11 @@ export const HowItWorksStepper: React.FC = () => {
                       <span className="mono-text" style={{ fontWeight: 600 }}>₹7,800</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-light)', fontSize: '0.875rem' }}>
-                      <span>Platform Fee (2.5%):</span>
+                      <span>Platform Fee (8% on shipper):</span>
+                      <span className="mono-text" style={{ fontWeight: 600 }}>₹624</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-light)', fontSize: '0.875rem' }}>
+                      <span>Escrow Disbursement (2.5%):</span>
                       <span className="mono-text" style={{ fontWeight: 600 }}>₹195</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontWeight: 700, fontSize: '1rem', color: 'var(--brand-navy)' }}>
