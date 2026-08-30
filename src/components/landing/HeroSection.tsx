@@ -166,11 +166,15 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
             className={`scroll-fade-up${rightInView ? ' in-view' : ''}`}
             style={{ position: 'relative', transitionDelay: '150ms' }}
           >
-            {/* Tab switcher pill */}
+            {/* Tab switcher pill — sits inside the card so there's no orphan gap */}
             <div style={{
+              backgroundColor: 'var(--surface-2)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '20px 20px 0 0',
+              borderBottom: 'none',
+              padding: '12px 20px 0',
               display: 'flex',
               justifyContent: 'center',
-              marginBottom: '16px'
             }}>
               <div style={{
                 display: 'inline-flex',
@@ -211,10 +215,15 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
             </div>
 
             {/* Panel — fade-swap between the two views */}
-            <div key={rightTab} className="animate-fade-in-scale">
+            <div key={rightTab} className="animate-fade-in-scale" style={{
+              borderRadius: '0 0 20px 20px',
+              overflow: 'hidden',
+              border: '1px solid var(--border-color)',
+              borderTop: 'none',
+            }}>
               {rightTab === 'calculator'
                 ? <LiveSavingsCalculator onSelectPersona={onSelectPersona} />
-                : <div style={{ borderRadius: '16px', overflow: 'hidden' }}><HighwayCorridorTelemetryMap /></div>
+                : <div><HighwayCorridorTelemetryMap /></div>
               }
             </div>
           </div>

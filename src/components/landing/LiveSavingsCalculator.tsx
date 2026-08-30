@@ -108,10 +108,7 @@ export const LiveSavingsCalculator: React.FC<LiveSavingsCalculatorProps> = ({ on
     <div
       style={{
         backgroundColor: 'var(--surface-2)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '20px',
         padding: '28px',
-        boxShadow: '0 20px 48px -8px rgba(4,44,83,0.14), 0 4px 12px rgba(0,0,0,0.06)',
         position: 'relative',
         overflow: 'hidden',
       }}
