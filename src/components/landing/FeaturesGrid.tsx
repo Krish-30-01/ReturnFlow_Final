@@ -48,7 +48,7 @@ const FEATURES: FeatureItem[] = [
   {
     id: 4,
     title: 'Driver Verification & Checks',
-    description: 'Direct Vahan and Sarathi API verification on commercial vehicle RC, insurance, fitness certificates, and driver licenses.',
+    description: 'Vehicle RC, fitness certificate, insurance, and driver license checks — verified against government transport records before onboarding.',
     category: 'security',
     icon: <ShieldCheck size={22} />,
     iconBg: 'rgba(4, 44, 83, 0.1)',
@@ -67,7 +67,7 @@ const FEATURES: FeatureItem[] = [
   {
     id: 6,
     title: 'Automated Invoice & Settlement',
-    description: 'Instant GST-compliant e-waybill generation and automated UPI/NEFT disbursements within seconds of proof-of-delivery.',
+    description: 'GST e-waybill record generation and UPI/NEFT payout initiation upon dual-confirmed proof-of-delivery.',
     category: 'settlement',
     icon: <Receipt size={22} />,
     iconBg: 'var(--brand-amber-light)',

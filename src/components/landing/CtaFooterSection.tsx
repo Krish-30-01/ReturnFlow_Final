@@ -232,7 +232,7 @@ export const CtaFooterSection: React.FC<CtaFooterSectionProps> = ({ onSelectPers
                 Security & Compliance
               </h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8125rem' }}>
-                {['Vahan RC & DL API Verified', 'RBI Compliant Escrow Trust', 'ISO 27001 Certified Platform'].map(label => (
+                {['RC & DL Document Verified', 'RBI-Compliant Escrow Trust', 'End-to-End Encrypted Platform'].map(label => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <ShieldCheck size={16} color="#1D9E75" />
                     <span>{label}</span>

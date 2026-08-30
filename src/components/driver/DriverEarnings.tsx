@@ -183,7 +183,7 @@ export const DriverEarnings: React.FC<DriverEarningsProps> = ({ earnings, onNavi
             Recent Settlement Ledger
           </h3>
           <span style={{ fontSize: '0.75rem', color: 'var(--brand-teal)', fontWeight: 600 }}>
-            Automated UPI / NEFT Payouts
+            UPI / NEFT Settlement on Delivery
           </span>
         </div>
 

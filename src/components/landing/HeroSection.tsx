@@ -161,7 +161,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onSelectPersona, onExp
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <ShieldCheck size={16} color="#0D9488" />
-                <span>Vahan-Verified Fleet Registry</span>
+                <span>Fleet & RC Document Verified</span>
               </div>
               <div
                 onClick={onExploreMatching}
