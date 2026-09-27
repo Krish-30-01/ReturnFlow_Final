@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "model_type": "gradient_boosting_regressor",
+  "features": ["distance_km", "weight_kg", "corridor_density", "time_of_day", "day_of_week"],
+  "target": "predicted_match_score",
+  "coefficients": {
+    "distance_km": -0.0012,
+    "weight_kg": 0.0031,
+    "corridor_density": 0.42,
+    "time_of_day": 0.08,
+    "day_of_week": -0.05,
+    "intercept": 72.4
+  },
+  "metadata": {
+    "training_samples": 12400,
+    "rmse": 8.2,
+    "r2_score": 0.74,
+    "trained_at": "2026-08-01"
+  }
+}
